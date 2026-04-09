@@ -28,29 +28,29 @@ class Agent:
         is_voice: bool = False,
     ) -> str:
         """
-        Přijme textový vstup, vrátí textový výstup.
+        Process user input and return response.
 
-        1. Načte session historii
-        2. Načte relevantní vzpomínky z Mem0
-        3. Sestaví zprávy pro Claude
-        4. Zavolá Claude API
-        5. Uloží zprávy do session
-        6. Asynchronně na pozadí uloží nová fakta do Mem0
-        7. Vrátí textovou odpověď
+        1. Load session history
+        2. Fetch relevant memories from Mem0
+        3. Build messages for Claude
+        4. Call Claude API
+        5. Save messages to session
+        6. Asynchronously save new facts to Mem0 in background
+        7. Return text response
         """
         await self._sessions.get_or_create(session_id, user_id)
         memories = await self._memory.search(user_message)
         system_prompt = build_system_prompt(memories, is_voice=is_voice)
 
         history = await self._sessions.get_history(session_id)
-        voice_suffix = "\n\n[Odpověz plynulými větami bez markdown, odrážek a nadpisů.]" if is_voice else ""
+        voice_suffix = "\n\n[Respond in english in flowing sentences without markdown, bullet points or headings.]" if is_voice else ""
         messages = history + [{"role": "user", "content": user_message + voice_suffix}]
 
         try:
             response_text = await self._claude.complete(system=system_prompt, messages=messages)
         except Exception:
-            logger.exception("Chyba při volání Claude API (session=%s)", session_id)
-            return "Omlouvám se, nastala chyba při komunikaci s AI. Zkus to prosím za chvíli."
+            logger.exception("Error with calling Claude API (session=%s)", session_id)
+            return "Sorry, there was an error communicating with AI. Please try again in a moment."
 
         await self._sessions.add_message(session_id, "user", user_message)
         await self._sessions.add_message(session_id, "assistant", response_text)
@@ -67,4 +67,4 @@ class Agent:
         try:
             await self._memory.add(messages)
         except Exception:
-            logger.exception("Chyba při ukládání do Mem0")
+            logger.exception("Error while saving Mem0")

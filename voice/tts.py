@@ -28,7 +28,7 @@ class TextToSpeech:
             "text": clean_text,
             "model_id": self._model,
             "voice_settings": {
-                "stability": 0.5,
+                "stability": 0.4,
                 "similarity_boost": 0.75,
             },
         }
