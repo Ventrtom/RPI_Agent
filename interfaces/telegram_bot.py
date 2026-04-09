@@ -65,13 +65,17 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"Chyba při přepisu hlasu: {e}")
         return
 
-    response_text = await agent.process(user_message, session_id, user_id)
+    await update.message.reply_text(f"_{user_message}_", parse_mode="Markdown")
+
+    response_text = await agent.process(user_message, session_id, user_id, is_voice=True)
+
+    await update.message.reply_text(response_text)
 
     try:
         audio_bytes = await tts.synthesize(response_text)
         await update.message.reply_voice(voice=io.BytesIO(audio_bytes))
     except Exception as e:
-        await update.message.reply_text(f"{response_text}\n\n(Chyba TTS: {e})")
+        await update.message.reply_text(f"(Chyba TTS: {e})")
 
 
 async def run_telegram(agent: Agent, stt: SpeechToText, tts: TextToSpeech, token: str, user_id: str) -> None:

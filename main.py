@@ -58,8 +58,8 @@ async def main() -> None:
         telegram_token = _require("TELEGRAM_BOT_TOKEN")
         elevenlabs_api_key = _require("ELEVENLABS_API_KEY")
         elevenlabs_voice_id = _require("ELEVENLABS_VOICE_ID")
-        whisper_model = os.getenv("WHISPER_MODEL", "base")
-        whisper_language = os.getenv("WHISPER_LANGUAGE", "cs")
+        whisper_model = os.getenv("WHISPER_MODEL") or None
+        whisper_language = os.getenv("WHISPER_LANGUAGE") or None
 
         from interfaces.telegram_bot import run_telegram
         from voice.stt import SpeechToText

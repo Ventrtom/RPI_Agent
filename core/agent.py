@@ -22,6 +22,7 @@ class Agent:
         user_message: str,
         session_id: str,
         user_id: str = "tomas",
+        is_voice: bool = False,
     ) -> str:
         """
         Přijme textový vstup, vrátí textový výstup.
@@ -36,7 +37,7 @@ class Agent:
         """
         session = await self._sessions.get_or_create(session_id, user_id)
         memories = await self._memory.search(user_message)
-        system_prompt = build_system_prompt(memories)
+        system_prompt = build_system_prompt(memories, is_voice=is_voice)
 
         history = await self._sessions.get_history(session_id)
         messages = history + [{"role": "user", "content": user_message}]
