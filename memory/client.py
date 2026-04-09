@@ -1,17 +1,21 @@
 import asyncio
+import logging
+import os
 from functools import partial
 
 from mem0 import Memory
 
+logger = logging.getLogger(__name__)
+
 
 class MemoryClient:
-    def __init__(self, user_id: str, chroma_path: str):
+    def __init__(self, user_id: str, chroma_path: str) -> None:
         self._user_id = user_id
         config = {
             "llm": {
                 "provider": "anthropic",
                 "config": {
-                    "model": "claude-haiku-4-5",
+                    "model": os.getenv("CLAUDE_MODEL", "claude-haiku-4-5"),
                 },
             },
             "vector_store": {
@@ -24,7 +28,7 @@ class MemoryClient:
             "embedder": {
                 "provider": "huggingface",
                 "config": {
-                    "model": "all-MiniLM-L6-v2",
+                    "model": os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
                 },
             },
         }
@@ -32,7 +36,7 @@ class MemoryClient:
 
     async def search(self, query: str, limit: int = 10) -> list[str]:
         """Vrátí list textových vzpomínek relevantních pro dotaz."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(
             None,
             partial(self._memory.search, query, user_id=self._user_id, limit=limit),
@@ -41,7 +45,7 @@ class MemoryClient:
 
     async def add(self, messages: list[dict]) -> None:
         """Extrahuje a uloží fakta z konverzace."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
             partial(self._memory.add, messages, user_id=self._user_id),
@@ -49,7 +53,7 @@ class MemoryClient:
 
     async def get_all(self) -> list[str]:
         """Vrátí všechny uložené vzpomínky — pro debug."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(
             None,
             partial(self._memory.get_all, user_id=self._user_id),

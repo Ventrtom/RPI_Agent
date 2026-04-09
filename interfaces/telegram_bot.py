@@ -1,12 +1,17 @@
 import asyncio
 import io
+import logging
 
 from telegram import Update
+from telegram.constants import ChatAction
+from telegram.error import TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from core.agent import Agent
 from voice.stt import SpeechToText
 from voice.tts import TextToSpeech
+
+logger = logging.getLogger(__name__)
 
 
 def _session_id(update: Update) -> str:
@@ -40,14 +45,31 @@ async def _cmd_newsession(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_text("Session ukončena. Začínáme znovu.")
 
 
+async def _safe_reply(update: Update, text: str) -> None:
+    """Odešle zprávu s jedním retrym při TimedOut."""
+    try:
+        await update.message.reply_text(text)
+    except TimedOut:
+        logger.warning("Telegram TimedOut při odesílání odpovědi, zkouším znovu")
+        await asyncio.sleep(2)
+        await update.message.reply_text(text)
+
+
 async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     agent: Agent = context.bot_data["agent"]
     user_id: str = context.bot_data["user_id"]
     session_id = _session_id(update)
     user_message = update.message.text
 
-    response = await agent.process(user_message, session_id, user_id)
-    await update.message.reply_text(response)
+    await update.message.chat.send_action(ChatAction.TYPING)
+    try:
+        response = await agent.process(user_message, session_id, user_id)
+    except Exception:
+        logger.exception("Neočekávaná chyba při zpracování zprávy (session=%s)", session_id)
+        await _safe_reply(update, "Omlouvám se, nastala neočekávaná chyba.")
+        return
+
+    await _safe_reply(update, response)
 
 
 async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -62,25 +84,41 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         audio_bytes = await voice_file.download_as_bytearray()
         user_message = await stt.transcribe(bytes(audio_bytes))
     except Exception as e:
+        logger.exception("Chyba při přepisu hlasu (session=%s)", session_id)
         await update.message.reply_text(f"Chyba při přepisu hlasu: {e}")
         return
 
     await update.message.reply_text(f"_{user_message}_", parse_mode="Markdown")
 
-    response_text = await agent.process(user_message, session_id, user_id, is_voice=True)
+    await update.message.chat.send_action(ChatAction.TYPING)
+    try:
+        response_text = await agent.process(user_message, session_id, user_id, is_voice=True)
+    except Exception:
+        logger.exception("Neočekávaná chyba při zpracování hlasové zprávy (session=%s)", session_id)
+        await _safe_reply(update, "Omlouvám se, nastala neočekávaná chyba.")
+        return
 
-    await update.message.reply_text(response_text)
+    await _safe_reply(update, response_text)
 
     try:
         audio_bytes = await tts.synthesize(response_text)
         await update.message.reply_voice(voice=io.BytesIO(audio_bytes))
     except Exception as e:
+        logger.warning("Chyba TTS (session=%s): %s", session_id, e)
         await update.message.reply_text(f"(Chyba TTS: {e})")
 
 
 async def run_telegram(agent: Agent, stt: SpeechToText, tts: TextToSpeech, token: str, user_id: str) -> None:
     """Spustí Telegram bot."""
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(30.0)
+        .build()
+    )
 
     app.bot_data["agent"] = agent
     app.bot_data["stt"] = stt
@@ -93,6 +131,7 @@ async def run_telegram(agent: Agent, stt: SpeechToText, tts: TextToSpeech, token
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_text))
     app.add_handler(MessageHandler(filters.VOICE, _handle_voice))
 
+    logger.info("Telegram bot spuštěn")
     async with app:
         await app.start()
         await app.updater.start_polling()

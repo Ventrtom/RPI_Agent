@@ -2,7 +2,6 @@ import re
 
 import httpx
 
-
 _MARKDOWN_RE = re.compile(r"(\*{1,3}|_{1,3}|`{1,3}|#{1,6}\s?|>\s?|[-*+]\s|\d+\.\s)")
 
 
@@ -11,9 +10,10 @@ def _strip_markdown(text: str) -> str:
 
 
 class TextToSpeech:
-    def __init__(self, api_key: str, voice_id: str):
+    def __init__(self, api_key: str, voice_id: str, model: str = "eleven_multilingual_v2") -> None:
         self._api_key = api_key
         self._voice_id = voice_id
+        self._model = model
         self._base_url = "https://api.elevenlabs.io/v1"
 
     async def synthesize(self, text: str) -> bytes:
@@ -26,7 +26,7 @@ class TextToSpeech:
         }
         payload = {
             "text": clean_text,
-            "model_id": "eleven_multilingual_v2",
+            "model_id": self._model,
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75,

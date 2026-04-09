@@ -1,16 +1,23 @@
+import logging
+import os
+
 import anthropic
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "1024"))
 
 
 class ClaudeClient:
-    def __init__(self, api_key: str, model: str = None):
+    def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
-        self._model = model or os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+        self._model = model
 
     async def complete(
         self,
         system: str,
         messages: list[dict],
-        max_tokens: int = 1024,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> str:
         """Zavolá Claude API, vrátí textovou odpověď."""
         response = await self._client.messages.create(
@@ -21,6 +28,6 @@ class ClaudeClient:
         )
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        print(f"[tokens] in={input_tokens} out={output_tokens} total={input_tokens + output_tokens}")
+        logger.debug("tokens in=%d out=%d total=%d", input_tokens, output_tokens, input_tokens + output_tokens)
 
         return response.content[0].text

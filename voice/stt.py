@@ -7,7 +7,7 @@ from groq import Groq
 
 
 class SpeechToText:
-    def __init__(self, model_name: str = "whisper-large-v3-turbo", language: str = None):
+    def __init__(self, model_name: str = "whisper-large-v3-turbo", language: str = None) -> None:
         self._model_name = model_name or "whisper-large-v3-turbo"
         self._language = language  # None = auto-detect
         self._client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -31,7 +31,7 @@ class SpeechToText:
             tmp_path = tmp.name
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self._executor, self._transcribe_sync, tmp_path)
         finally:
             os.unlink(tmp_path)
