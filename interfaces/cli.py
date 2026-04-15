@@ -4,7 +4,7 @@ import uuid
 from core.agent import Agent
 
 
-async def run_cli(agent: Agent) -> None:
+async def run_cli(agent: Agent, user_id: str) -> None:
     """Spustí interaktivní CLI smyčku."""
     session_id = str(uuid.uuid4())
     print("Agent CLI — zadejte zprávu nebo příkaz (/memory, /clear, /quit)")
@@ -42,5 +42,5 @@ async def run_cli(agent: Agent) -> None:
             print()
             continue
 
-        response = await agent.process(user_input, session_id)
+        response = await agent.process(user_input, session_id, user_id)
         print(f"Agent: {response}\n")

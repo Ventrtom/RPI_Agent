@@ -8,3 +8,7 @@ __pycache__/
 *.wav
 *.ogg
 /tmp/
+*.log
+credentials/google_token.json
+credentials/google_oauth.json
+data/contacts.json

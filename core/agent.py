@@ -5,6 +5,7 @@ from core.prompts import build_system_prompt
 from core.session import SessionManager
 from llm.claude import ClaudeClient
 from memory.client import MemoryClient
+from tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,12 @@ class Agent:
         memory_client: MemoryClient,
         claude_client: ClaudeClient,
         session_manager: SessionManager,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self._memory = memory_client
         self._claude = claude_client
         self._sessions = session_manager
+        self._tools = tool_registry
 
     async def process(
         self,
@@ -33,7 +36,7 @@ class Agent:
         1. Load session history
         2. Fetch relevant memories from Mem0
         3. Build messages for Claude
-        4. Call Claude API
+        4. Call Claude API (with tool use loop if tools registered)
         5. Save messages to session
         6. Asynchronously save new facts to Mem0 in background
         7. Return text response
@@ -46,8 +49,16 @@ class Agent:
         voice_suffix = "\n\n[Respond in english in flowing sentences without markdown, bullet points or headings.]" if is_voice else ""
         messages = history + [{"role": "user", "content": user_message + voice_suffix}]
 
+        tools = self._tools.get_schemas() if self._tools and len(self._tools) > 0 else None
+        tool_executor = self._tools.execute if tools else None
+
         try:
-            response_text = await self._claude.complete(system=system_prompt, messages=messages)
+            response_text = await self._claude.complete(
+                system=system_prompt,
+                messages=messages,
+                tools=tools,
+                tool_executor=tool_executor,
+            )
         except Exception:
             logger.exception("Error with calling Claude API (session=%s)", session_id)
             return "Sorry, there was an error communicating with AI. Please try again in a moment."

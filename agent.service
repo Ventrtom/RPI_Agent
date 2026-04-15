@@ -2,6 +2,8 @@
 Description=RPI Personal AI Agent
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,8 +13,6 @@ EnvironmentFile=/home/tomas/agent/.env
 ExecStart=/home/tomas/agent/.venv/bin/python main.py telegram
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
 StandardOutput=append:/home/tomas/agent/agent.log
 StandardError=append:/home/tomas/agent/agent.log
 

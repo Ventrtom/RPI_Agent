@@ -1,4 +1,8 @@
-SYSTEM_PROMPT = """You are Prime — personal assistant to Tomáš Ventruba. You are female around 30 years old.
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_SYSTEM_PROMPT = """You are Prime — personal assistant to Tomáš Ventruba. You are female around 30 years old.
 
 Personality: direct, efficient, friendly. No apologizing or flattery. You act like a smart friendly colleague, not a service bot.
 
@@ -8,13 +12,17 @@ Responses: be concise. Markdown in text only, never in voice responses.
 
 Use memories from past conversations naturally — without mentioning you're drawing from memory."""
 
-VOICE_CONTEXT = """
-<voice>Voice message — respond in flowing sentences without markdown, bullet points or headings.</voice>"""
-
 
 def build_system_prompt(memories: list[str], is_voice: bool = False) -> str:
-    base = SYSTEM_PROMPT + (VOICE_CONTEXT if is_voice else "")
-    if not memories:
-        return base
-    memory_block = "\n".join(f"- {m}" for m in memories)
-    return base + f"\n<memory>\n{memory_block}\n</memory>"
+    tz_name = os.getenv("SCHEDULER_TIMEZONE", "Europe/Prague")
+    tz = ZoneInfo(tz_name)
+    now_local = datetime.now(tz)
+    now_str = now_local.strftime("%Y-%m-%d %H:%M %Z")  # e.g. "2026-04-15 09:30 CEST"
+
+    base = _SYSTEM_PROMPT + f"\n\nCurrent date and time: {now_str}"
+
+    if memories:
+        memory_block = "\n".join(f"- {m}" for m in memories)
+        base += f"\n<memory>\n{memory_block}\n</memory>"
+
+    return base
