@@ -10,7 +10,7 @@ def _strip_markdown(text: str) -> str:
 
 
 class TextToSpeech:
-    def __init__(self, api_key: str, voice_id: str, model: str = "eleven_multilingual_v2") -> None:
+    def __init__(self, api_key: str | None, voice_id: str | None, model: str = "eleven_multilingual_v2") -> None:
         self._api_key = api_key
         self._voice_id = voice_id
         self._model = model
@@ -18,6 +18,11 @@ class TextToSpeech:
 
     async def synthesize(self, text: str) -> bytes:
         """Přijme text, vrátí audio jako bytes (MP3)."""
+        if not self._api_key or not self._voice_id:
+            raise RuntimeError(
+                "Text-to-speech není dostupný: ELEVENLABS_API_KEY nebo ELEVENLABS_VOICE_ID není nastaven v .env. "
+                "Klíč a Voice ID získáš na: https://elevenlabs.io/"
+            )
         clean_text = _strip_markdown(text)
         url = f"{self._base_url}/text-to-speech/{self._voice_id}"
         headers = {

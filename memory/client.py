@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class MemoryClient:
     def __init__(self, user_id: str, chroma_path: str) -> None:
         self._user_id = user_id
+        self._chroma_path = chroma_path
         config = {
             "llm": {
                 "provider": "anthropic",
@@ -63,3 +64,29 @@ class MemoryClient:
             partial(self._memory.get_all, user_id=self._user_id),
         )
         return [r["memory"] for r in results.get("results", [])]
+
+    async def get_stats(self) -> dict:
+        """Vrátí počet vzpomínek a velikost ChromaDB na disku v MB."""
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(
+            None,
+            partial(self._memory.get_all, user_id=self._user_id),
+        )
+        count = len(results.get("results", []))
+
+        size_bytes = 0
+        try:
+            for dirpath, _, filenames in os.walk(self._chroma_path):
+                for fname in filenames:
+                    fp = os.path.join(dirpath, fname)
+                    try:
+                        size_bytes += os.path.getsize(fp)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+
+        return {
+            "memory_count": count,
+            "db_size_mb": round(size_bytes / 1024 / 1024, 2),
+        }

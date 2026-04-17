@@ -7,10 +7,10 @@ from groq import Groq
 
 
 class SpeechToText:
-    def __init__(self, api_key: str, model_name: str = "whisper-large-v3-turbo", language: str = None) -> None:
+    def __init__(self, api_key: str | None, model_name: str = "whisper-large-v3-turbo", language: str = None) -> None:
         self._model_name = model_name or "whisper-large-v3-turbo"
         self._language = language  # None = auto-detect
-        self._client = Groq(api_key=api_key)
+        self._client = Groq(api_key=api_key) if api_key else None
         self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _transcribe_sync(self, audio_path: str) -> str:
@@ -26,6 +26,11 @@ class SpeechToText:
 
     async def transcribe(self, audio_bytes: bytes) -> str:
         """Přijme audio jako bytes (OGG/MP3/WAV), vrátí přepsaný text."""
+        if self._client is None:
+            raise RuntimeError(
+                "Speech-to-text není dostupný: GROQ_API_KEY není nastaven v .env. "
+                "Klíč zdarma získáš na: https://console.groq.com/"
+            )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg", dir="/tmp") as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name

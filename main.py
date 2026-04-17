@@ -9,6 +9,7 @@ Použití:
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -107,6 +108,22 @@ async def main() -> None:
         enable_task,
         update_task,
         )
+    from tools.web_tools import (
+        WEB_SEARCH_SCHEMA,
+        web_search,
+        )
+    from tools.self_tools import (
+        GET_SELF_INFO_SCHEMA,
+        init_self_tools,
+        get_self_info,
+        )
+    from tools.source_tools import (
+        LIST_OWN_SOURCE_SCHEMA,
+        READ_OWN_SOURCE_SCHEMA,
+        init_source_tools,
+        list_own_source,
+        read_own_source,
+        )
 
     registry = ToolRegistry()
     registry.register(get_system_status)
@@ -129,6 +146,10 @@ async def main() -> None:
     registry.register(cancel_task, CANCEL_TASK_SCHEMA)
     registry.register(enable_task, ENABLE_TASK_SCHEMA)
     registry.register(update_task, UPDATE_TASK_SCHEMA)
+    registry.register(web_search, WEB_SEARCH_SCHEMA)
+    registry.register(get_self_info, GET_SELF_INFO_SCHEMA)
+    registry.register(list_own_source, LIST_OWN_SOURCE_SCHEMA)
+    registry.register(read_own_source, READ_OWN_SOURCE_SCHEMA)
     logger.info("Tools registered: %s", [fn.__name__ for fn in registry.get_all()])
 
     tasks_db_path = os.getenv("TASKS_DB_PATH", "./data/tasks.db")
@@ -147,6 +168,8 @@ async def main() -> None:
 
     notifier = TelegramNotifier()
     init_telegram_tools(notifier)
+    init_self_tools(claude_client, memory_client, registry)
+    init_source_tools(Path(__file__).parent)
 
     task_store = TaskStore(db_path=tasks_db_path)
     init_scheduler_tools(task_store, scheduler_tz)
@@ -160,9 +183,9 @@ async def main() -> None:
 
     elif mode == "telegram":
         telegram_token = _require("TELEGRAM_BOT_TOKEN")
-        elevenlabs_api_key = _require("ELEVENLABS_API_KEY")
-        elevenlabs_voice_id = _require("ELEVENLABS_VOICE_ID")
-        groq_api_key = _require("GROQ_API_KEY")
+        elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+        elevenlabs_voice_id = os.getenv("ELEVENLABS_VOICE_ID")
+        groq_api_key = os.getenv("GROQ_API_KEY")
         elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
         whisper_model = os.getenv("WHISPER_MODEL") or None
         whisper_language = os.getenv("WHISPER_LANGUAGE") or None

@@ -14,6 +14,8 @@ class ClaudeClient:
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
+        self._session_input_tokens: int = 0
+        self._session_output_tokens: int = 0
 
     async def complete(
         self,
@@ -44,6 +46,8 @@ class ClaudeClient:
 
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
+            self._session_input_tokens += input_tokens
+            self._session_output_tokens += output_tokens
             logger.debug(
                 "tokens in=%d out=%d total=%d stop=%s",
                 input_tokens,
@@ -77,3 +81,12 @@ class ClaudeClient:
                 {"role": "assistant", "content": response.content},
                 {"role": "user", "content": tool_results},
             ]
+
+    def get_token_usage(self) -> dict:
+        """Return cumulative token usage since process start."""
+        total = self._session_input_tokens + self._session_output_tokens
+        return {
+            "input_tokens": self._session_input_tokens,
+            "output_tokens": self._session_output_tokens,
+            "total_tokens": total,
+        }
