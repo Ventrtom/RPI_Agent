@@ -23,41 +23,61 @@ Osobní AI asistent navržený pro trvalý provoz na Raspberry Pi. Dostupný př
 ## Architektura
 
 ```
-main.py                   ← entry point, načítá konfigurace, sestavuje závislosti
+main.py                      ← entry point, validace env, sestavení závislostí, registrace nástrojů
 │
 ├── core/
-│   ├── agent.py          ← hlavní smyčka: zpracování zprávy, volání Claude, uložení paměti
-│   ├── session.py        ← správa session v paměti + automatická expirace
-│   ├── session_store.py  ← SQLite persistence — session přežijí restart
-│   └── prompts.py        ← systémový prompt, voice context
+│   ├── agent.py             ← orchestrátor: zpracování zprávy, volání Claude, uložení paměti
+│   ├── session.py           ← správa session v paměti + automatická expirace
+│   ├── session_store.py     ← SQLite persistence — session přežijí restart
+│   └── prompts.py           ← systémový prompt, voice/scheduled kontext
 │
 ├── llm/
-│   └── claude.py         ← klient Anthropic API
+│   └── claude.py            ← klient Anthropic API (tool use loop)
 │
 ├── memory/
-│   └── client.py         ← Mem0 + ChromaDB — dlouhodobá paměť (fakta o uživateli)
+│   └── client.py            ← Mem0 + ChromaDB — dlouhodobá paměť (fakta o uživateli)
 │
 ├── voice/
-│   ├── stt.py            ← Groq Whisper — přepis hlasu na text
-│   └── tts.py            ← ElevenLabs — syntéza textu na hlas
+│   ├── stt.py               ← Groq Whisper — přepis hlasu na text
+│   └── tts.py               ← ElevenLabs — syntéza textu na hlas
 │
 ├── interfaces/
-│   ├── telegram_bot.py   ← Telegram bot (text + hlas)
-│   └── cli.py            ← interaktivní CLI (vývoj, debug)
+│   ├── telegram_bot.py      ← Telegram bot (text + hlas)
+│   ├── notifier.py          ← TelegramNotifier — proaktivní odesílání zpráv agentem
+│   └── cli.py               ← interaktivní CLI (vývoj, debug)
 │
-└── tools/                ← rozšiřitelný registr nástrojů
+├── scheduler/
+│   ├── daemon.py            ← background scheduler — spouští naplánované úlohy (cron)
+│   ├── models.py            ← datové modely Task, ExecutionLog
+│   └── store.py             ← SQLite persistence naplánovaných úloh
+│
+└── tools/                   ← rozšiřitelný registr nástrojů pro agenta
+    ├── __init__.py          ← třída ToolRegistry
+    ├── system_tools.py      ← stav systému, shutdown, logy (RPi)
+    ├── google_tools.py      ← Google Calendar a Gmail
+    ├── contact_tools.py     ← správa kontaktů (data/contacts.json)
+    ├── telegram_tools.py    ← odeslání zprávy uživateli přes Telegram
+    ├── scheduler_tools.py   ← CRUD naplánovaných úloh
+    └── example_tool.py      ← šablona pro nový nástroj
 ```
 
 **Tok zpracování zprávy:**
-1. Uživatel pošle zprávu přes Telegram (text nebo hlas)
+1. Uživatel pošle zprávu přes Telegram (text nebo hlas) nebo CLI
 2. Agent načte session historii ze SQLite, vyhledá relevantní vzpomínky z ChromaDB
 3. Zavolá Claude API se systémovým promptem, historií a vzpomínkami
-4. Uloží zprávy do session (SQLite) a asynchronně extrahuje nová fakta do Mem0
-5. Odešle odpověď uživateli (u hlasových zpráv také přes ElevenLabs TTS)
+4. Claude může volat nástroje (calendar, email, scheduler, system…) — smyčka se opakuje dokud nenastane finální odpověď
+5. Uloží zprávy do session (SQLite) a asynchronně extrahuje nová fakta do Mem0
+6. Odešle odpověď uživateli (u hlasových zpráv také přes ElevenLabs TTS)
 
 **Paměť:**
 - **Krátkodobá (session)** — history zpráv v aktuální konverzaci, uložena v SQLite, přežije restart
 - **Dlouhodobá (Mem0 + ChromaDB)** — fakta extrahovaná z konverzací, uložena na disku v `./data/chroma/`
+
+**Scheduler:**
+- Běží jako background task (asyncio), každých 60 sekund kontroluje naplánované úlohy
+- Každý run dostane izolovanou session — história se nehromadí napříč spuštěními
+- Podporuje jednorázové i opakující se úlohy (cron výraz), retry s exponenciálním backoff, `end_at` expiraci
+- Agent může naplánovat úlohu sám přes nástroj `schedule_task`
 
 ---
 
@@ -110,6 +130,9 @@ cp .env.example .env
 Otevři `.env` a vyplň hodnoty:
 
 ```env
+# Agent identity
+AGENT_USER_NAME=Firstname Lastname      # jméno uživatele v systémovém promptu
+
 # LLM
 ANTHROPIC_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-haiku-4-5-20251001   # nebo jiný Claude model
@@ -130,6 +153,7 @@ WHISPER_LANGUAGE=cs                      # prázdné = auto-detect
 
 # Telegram
 TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_CHAT_ID=                        # volitelné: pre-init notifikatoru bez /start
 
 # Session
 SESSION_TIMEOUT_MINUTES=60              # po jak dlouhé nečinnosti se session uzavře
@@ -138,7 +162,11 @@ SESSION_DB_PATH=./data/sessions.db      # SQLite soubor pro persistenci session
 
 # Mem0 / ChromaDB
 CHROMA_DB_PATH=./data/chroma            # adresář pro vektorovou DB
-MEM0_USER_ID=tomas                      # identifikátor uživatele v paměti
+MEM0_USER_ID=user                      # identifikátor uživatele v paměti
+
+# Scheduler
+SCHEDULER_TIMEZONE=Europe/Prague        # timezone pro cron výrazy naplánovaných úloh
+TASKS_DB_PATH=./data/tasks.db           # SQLite soubor pro naplánované úlohy
 
 # Logging
 LOG_LEVEL=INFO                          # DEBUG / INFO / WARNING / ERROR
@@ -269,15 +297,32 @@ Viz [tools/example_tool.py](tools/example_tool.py) jako šablona. Každý nástr
 
 1. Být `async` funkce s docstringem (popis funkce pro agenta)
 2. Vracet `dict`
-3. Být zaregistrován přes `tool_registry.register()`
+3. Mít definované input schema (dict kompatibilní s Claude tool use API)
+4. Být zaregistrován v `main.py` přes `registry.register()`
 
 ```python
-from tools import tool_registry
+# tools/weather_tools.py
+
+GET_WEATHER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "city": {"type": "string", "description": "Název města"},
+    },
+    "required": ["city"],
+}
 
 async def get_weather(city: str) -> dict:
     """Vrátí aktuální počasí pro zadané město."""
     ...
     return {"city": city, "temp": 22}
-
-tool_registry.register(get_weather)
 ```
+
+Pak v `main.py` přidej import a registraci:
+
+```python
+from tools.weather_tools import GET_WEATHER_SCHEMA, get_weather
+
+registry.register(get_weather, GET_WEATHER_SCHEMA)
+```
+
+Nástroje bez parametrů schema nepotřebují — `registry.register(get_weather)` stačí.

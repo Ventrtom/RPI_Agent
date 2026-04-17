@@ -26,7 +26,11 @@ GET_CALENDAR_EVENTS_SCHEMA = {
     "properties": {
         "days_ahead": {
             "type": "integer",
-            "description": "How many days ahead to look for events (default: 7)",
+            "description": (
+                "How many days ahead to look for events (default: 7)"
+                "Use 1 to see the rest of today and tomorrow, 7 for a week. "
+                "Never use 0 — it returns nothing."
+            )
         },
     },
     "required": [],
@@ -113,17 +117,22 @@ FIND_FREE_SLOTS_SCHEMA = {
 
 _PRIME_AGENT_CALENDAR = "Prime Agent"
 
-
+_prime_calendar_id: str | None = None
 def _get_or_create_prime_calendar(service) -> str:
     """Return the calendarId of the 'Prime Agent' calendar, creating it if needed."""
+    global _prime_calendar_id
+    if _prime_calendar_id:
+        return _prime_calendar_id
     calendars = service.calendarList().list().execute().get("items", [])
     for cal in calendars:
         if cal.get("summary") == _PRIME_AGENT_CALENDAR:
-            return cal["id"]
+            _prime_calendar_id = cal["id"]
+            return _prime_calendar_id
 
     logger.info("Creating '%s' calendar", _PRIME_AGENT_CALENDAR)
     created = service.calendars().insert(body={"summary": _PRIME_AGENT_CALENDAR}).execute()
-    return created["id"]
+    _prime_calendar_id = created["id"]
+    return _prime_calendar_id
 
 
 def _fetch_calendar_events(days_ahead: int) -> dict:
@@ -132,7 +141,12 @@ def _fetch_calendar_events(days_ahead: int) -> dict:
 
     now = datetime.now(tz=timezone.utc)
     time_min = now.isoformat()
-    time_max = (now + timedelta(days=days_ahead)).isoformat()
+    # days_ahead=0 → zbytek dnešního dne místo prázdného okna
+    if days_ahead == 0:
+        end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=0)
+        time_max = end_of_day.isoformat()
+    else:
+        time_max = (now + timedelta(days=days_ahead)).isoformat()
 
     calendars = service.calendarList().list().execute().get("items", [])
     events: list[dict] = []
@@ -220,7 +234,13 @@ def _send_email(to: str, subject: str, body: str) -> dict:
 def _delete_calendar_event(event_id: str) -> dict:
     creds = get_credentials()
     service = build("calendar", "v3", credentials=creds, cache_discovery=False)
-    calendar_id = _get_or_create_prime_calendar(service)
+    calendars = service.calendarList().list().execute().get("items", [])
+    calendar_id = next(
+        (c["id"] for c in calendars if c.get("summary") == _PRIME_AGENT_CALENDAR),
+        None
+    )
+    if calendar_id is None:
+        return {"status": "failed", "error": "Prime Agent calendar does not exist."}
 
     service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
     return {"status": "deleted", "event_id": event_id}
@@ -303,6 +323,9 @@ async def get_calendar_events(days_ahead: int = 7) -> dict:
     far into the future to look (default: 7 days).
     Returns a list of events with title, start time, end time, location,
     and calendar name, sorted chronologically.
+    IMPORTANT: days_ahead=0 is treated as 'rest of today'. 
+    Use 7 (default) for a week view, 1 for today+tomorrow.
+    Never call with days_ahead=0 expecting a full day — use the default instead.
     """
     try:
         return await asyncio.to_thread(_fetch_calendar_events, days_ahead)
@@ -413,6 +436,7 @@ async def find_free_slots(date: str, duration_minutes: int = 60) -> dict:
     Use this when Tomas asks when he is free, wants to find a time to schedule
     something, or asks for available slots on a particular day.
     Returns a list of free windows with start and end times.
+    IMPORTANT: all-day events like vacation or holiday might be skipped from from the filter therefore you might propo free time even if there is such event which is fine, just to know about it. 
     """
     try:
         return await asyncio.to_thread(_find_free_slots, date, duration_minutes)

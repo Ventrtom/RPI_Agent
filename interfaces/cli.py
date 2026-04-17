@@ -26,13 +26,13 @@ async def run_cli(agent: Agent, user_id: str) -> None:
             break
 
         if user_input == "/clear":
-            await agent._sessions.close_session(session_id)
+            await agent.close_session(session_id)
             session_id = str(uuid.uuid4())
             print(f"Nová session: {session_id}\n")
             continue
 
         if user_input == "/memory":
-            memories = await agent._memory.get_all()
+            memories = await agent.get_all_memories()
             if memories:
                 print("Vzpomínky:")
                 for m in memories:

@@ -42,19 +42,3 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
-
-
-tool_registry = ToolRegistry()
-
-from tools.google_tools import (  # noqa: E402
-    CREATE_CALENDAR_EVENT_SCHEMA,
-    GET_CALENDAR_EVENTS_SCHEMA,
-    SEND_EMAIL_SCHEMA,
-    create_calendar_event,
-    get_calendar_events,
-    send_email,
-)
-
-tool_registry.register(get_calendar_events, GET_CALENDAR_EVENTS_SCHEMA)
-tool_registry.register(create_calendar_event, CREATE_CALENDAR_EVENT_SCHEMA)
-tool_registry.register(send_email, SEND_EMAIL_SCHEMA)

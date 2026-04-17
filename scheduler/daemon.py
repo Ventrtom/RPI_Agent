@@ -7,6 +7,7 @@ On each tick: fetch due tasks from DB → execute each concurrently via agent.pr
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -103,9 +104,10 @@ class TaskScheduler:
         error_msg: str | None = None
 
         try:
-            session_id = f"scheduler_{task.id}"
+            # Use a per-run session so history never accumulates across runs
+            session_id = f"scheduler_{task.id}_{uuid.uuid4().hex[:8]}"
             response_text = await asyncio.wait_for(
-                self._agent.process(task.prompt, session_id, self._user_id),
+                self._agent.process(task.prompt, session_id, self._user_id, is_scheduled=True),
                 timeout=task.timeout_seconds,
             )
             outcome = "completed"
@@ -145,9 +147,10 @@ class TaskScheduler:
 
         if outcome == "completed":
             if task.task_type == TaskType.RECURRING:
+                new_retry_count = 0  # reset per-run; failures within this run don't count against the next
                 next_run_at = compute_next_run(task.cron_expr, finished_at, self._tz)
-                if task.end_at and next_run_at > task.end_at:
-                    # Next occurrence would be past the expiry — stop the task
+                if task.end_at and next_run_at >= task.end_at:
+                    # Next occurrence is at or past the expiry — stop the task
                     next_run_at = None
                     new_status = TaskStatus.COMPLETED.value
                     logger.info(
@@ -159,15 +162,32 @@ class TaskScheduler:
             else:
                 new_status = TaskStatus.COMPLETED.value
         else:
-            # failed or timeout — retry with exponential backoff
-            if new_retry_count < task.max_retries:
-                backoff_seconds = 60 * (2 ** (new_retry_count - 1))  # 60s, 120s, 240s
-                next_run_at = finished_at + timedelta(seconds=backoff_seconds)
-                new_status = TaskStatus.PENDING.value
+            # failed or timeout — check end_at before scheduling a retry
+            past_end = task.end_at and finished_at >= task.end_at
+            if past_end:
+                # Already past the expiry — don't retry, just stop
+                new_status = TaskStatus.COMPLETED.value
                 logger.info(
-                    "TaskScheduler: task '%s' will retry in %ds (attempt %d/%d)",
-                    task.name, backoff_seconds, new_retry_count, task.max_retries,
+                    "TaskScheduler: recurring task '%s' failed after end_at, marking completed",
+                    task.name,
                 )
+            elif new_retry_count < task.max_retries:
+                backoff_seconds = 60 * (2 ** (new_retry_count - 1))  # 60s, 120s, 240s
+                retry_at = finished_at + timedelta(seconds=backoff_seconds)
+                # Don't schedule the retry past end_at
+                if task.end_at and retry_at >= task.end_at:
+                    new_status = TaskStatus.COMPLETED.value
+                    logger.info(
+                        "TaskScheduler: task '%s' retry would exceed end_at, stopping",
+                        task.name,
+                    )
+                else:
+                    next_run_at = retry_at
+                    new_status = TaskStatus.PENDING.value
+                    logger.info(
+                        "TaskScheduler: task '%s' will retry in %ds (attempt %d/%d)",
+                        task.name, backoff_seconds, new_retry_count, task.max_retries,
+                    )
             else:
                 new_status = TaskStatus.FAILED.value
                 logger.error(

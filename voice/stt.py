@@ -7,10 +7,10 @@ from groq import Groq
 
 
 class SpeechToText:
-    def __init__(self, model_name: str = "whisper-large-v3-turbo", language: str = None) -> None:
+    def __init__(self, api_key: str, model_name: str = "whisper-large-v3-turbo", language: str = None) -> None:
         self._model_name = model_name or "whisper-large-v3-turbo"
         self._language = language  # None = auto-detect
-        self._client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        self._client = Groq(api_key=api_key)
         self._executor = ThreadPoolExecutor(max_workers=1)
 
     def _transcribe_sync(self, audio_path: str) -> str:

@@ -156,8 +156,8 @@ async def get_contact_by_name(name: str) -> dict:
         if len(matches) > 1:
             return {
                 "status": "ambiguous",
-                "error": f"Multiple contacts match '{name}'. Please be more specific.",
-                "matches": [c["name"] for c in matches],
+                "message": f"Multiple contacts match '{name}'. Pick the most appropriate one based on tags and notes.",
+                "matches": matches,
             }
 
         return {"status": "not_found", "error": f"No contact found matching '{name}'."}

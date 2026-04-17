@@ -36,12 +36,16 @@ class MemoryClient:
 
     async def search(self, query: str, limit: int = 10) -> list[str]:
         """Vrátí list textových vzpomínek relevantních pro dotaz."""
-        loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(
-            None,
-            partial(self._memory.search, query, user_id=self._user_id, limit=limit),
-        )
-        return [r["memory"] for r in results.get("results", [])]
+        try:
+            loop = asyncio.get_running_loop()
+            results = await loop.run_in_executor(
+                None,
+                partial(self._memory.search, query, user_id=self._user_id, limit=limit),
+            )
+            return [r["memory"] for r in results.get("results", [])]
+        except Exception:
+            logger.warning("ChromaDB search failed, continuing without memories")
+            return []
 
     async def add(self, messages: list[dict]) -> None:
         """Extrahuje a uloží fakta z konverzace."""

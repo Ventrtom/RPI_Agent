@@ -85,7 +85,13 @@ async def main() -> None:
         add_contact,
         remove_contact,
         )
+    from interfaces.notifier import TelegramNotifier
     from scheduler import TaskScheduler, TaskStore
+    from tools.telegram_tools import (
+        SEND_TELEGRAM_MESSAGE_SCHEMA,
+        init_telegram_tools,
+        send_telegram_message,
+        )
     from tools.scheduler_tools import (
         SCHEDULE_TASK_SCHEMA,
         LIST_TASKS_SCHEMA,
@@ -116,6 +122,7 @@ async def main() -> None:
     registry.register(remove_contact, REMOVE_CONTACT_SCHEMA)
     registry.register(delete_calendar_event, DELETE_CALENDAR_EVENT_SCHEMA)
     registry.register(find_free_slots, FIND_FREE_SLOTS_SCHEMA)
+    registry.register(send_telegram_message, SEND_TELEGRAM_MESSAGE_SCHEMA)
     registry.register(schedule_task, SCHEDULE_TASK_SCHEMA)
     registry.register(list_tasks, LIST_TASKS_SCHEMA)
     registry.register(get_task_details, GET_TASK_DETAILS_SCHEMA)
@@ -138,6 +145,9 @@ async def main() -> None:
         tool_registry=registry,
     )
 
+    notifier = TelegramNotifier()
+    init_telegram_tools(notifier)
+
     task_store = TaskStore(db_path=tasks_db_path)
     init_scheduler_tools(task_store, scheduler_tz)
     scheduler = TaskScheduler(task_store, agent, user_id=mem0_user_id, timezone_name=scheduler_tz)
@@ -152,6 +162,7 @@ async def main() -> None:
         telegram_token = _require("TELEGRAM_BOT_TOKEN")
         elevenlabs_api_key = _require("ELEVENLABS_API_KEY")
         elevenlabs_voice_id = _require("ELEVENLABS_VOICE_ID")
+        groq_api_key = _require("GROQ_API_KEY")
         elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
         whisper_model = os.getenv("WHISPER_MODEL") or None
         whisper_language = os.getenv("WHISPER_LANGUAGE") or None
@@ -160,10 +171,10 @@ async def main() -> None:
         from voice.stt import SpeechToText
         from voice.tts import TextToSpeech
 
-        stt = SpeechToText(model_name=whisper_model, language=whisper_language)
+        stt = SpeechToText(api_key=groq_api_key, model_name=whisper_model, language=whisper_language)
         tts = TextToSpeech(api_key=elevenlabs_api_key, voice_id=elevenlabs_voice_id, model=elevenlabs_model)
 
-        await run_telegram(agent=agent, stt=stt, tts=tts, token=telegram_token, user_id=mem0_user_id)
+        await run_telegram(agent=agent, stt=stt, tts=tts, token=telegram_token, user_id=mem0_user_id, notifier=notifier)
 
 
 if __name__ == "__main__":

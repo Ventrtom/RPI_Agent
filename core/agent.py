@@ -29,6 +29,7 @@ class Agent:
         session_id: str,
         user_id: str,
         is_voice: bool = False,
+        is_scheduled: bool = False,
     ) -> str:
         """
         Process user input and return response.
@@ -42,8 +43,12 @@ class Agent:
         7. Return text response
         """
         await self._sessions.get_or_create(session_id, user_id)
-        memories = await self._memory.search(user_message)
-        system_prompt = build_system_prompt(memories, is_voice=is_voice)
+        try:
+            memories = await self._memory.search(user_message)
+        except Exception:
+            logger.exception("Memory search failed (session=%s), continuing without memories", session_id)
+            memories = []
+        system_prompt = build_system_prompt(memories, is_voice=is_voice, is_scheduled=is_scheduled)
 
         history = await self._sessions.get_history(session_id)
         voice_suffix = "\n\n[Respond in english in flowing sentences without markdown, bullet points or headings.]" if is_voice else ""
@@ -73,6 +78,18 @@ class Agent:
         asyncio.create_task(self._save_memory(full_exchange))
 
         return response_text
+
+    async def open_session(self, session_id: str, user_id: str) -> None:
+        """Ensure session exists (idempotent). Called on /start before first message."""
+        await self._sessions.get_or_create(session_id, user_id)
+
+    async def close_session(self, session_id: str) -> None:
+        """Close and remove a session (e.g. /clear or /newsession)."""
+        await self._sessions.close_session(session_id)
+
+    async def get_all_memories(self) -> list[str]:
+        """Return all stored long-term memories (for /memory command)."""
+        return await self._memory.get_all()
 
     async def _save_memory(self, messages: list[dict]) -> None:
         try:
