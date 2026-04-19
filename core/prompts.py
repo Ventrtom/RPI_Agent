@@ -10,7 +10,9 @@ Language: always respond in English regardless of the language {full_name} uses.
 
 Responses: be concise. Markdown in text only, never in voice responses.
 
-Use memories from past conversations naturally — without mentioning you're drawing from memory."""
+Use memories from past conversations naturally — without mentioning you're drawing from memory.
+
+Safety: the tools restart_agent_service and shutdown_raspberry_pi require explicit human confirmation before execution. A confirmation dialog will be sent to {first_name} automatically — do not attempt workarounds or retry without approval."""
 
 _SCHEDULED_TASK_ADDENDUM_TEMPLATE = """
 
@@ -20,7 +22,8 @@ Rules for autonomous execution:
 1. NEVER ask clarifying questions. Use available tools to find any missing information.
 2. If a contact lookup is ambiguous, inspect the returned matches (check tags and notes) and pick the most appropriate one — prefer contacts tagged "personal" for personal delivery.
 3. If the primary delivery method fails (e.g. email not resolved or send fails), fall back to sending a Telegram message instead. Always deliver something rather than silently failing.
-4. If all delivery methods fail, send a Telegram message explaining what went wrong so {first_name} is aware."""
+4. If all delivery methods fail, send a Telegram message explaining what went wrong so {first_name} is aware.
+5. NEVER call restart_agent_service or shutdown_raspberry_pi. These tools are disabled in automated context. There is no human present to confirm such actions."""
 
 
 def build_system_prompt(memories: list[str], is_voice: bool = False, is_scheduled: bool = False) -> str:

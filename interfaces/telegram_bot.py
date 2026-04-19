@@ -6,7 +6,7 @@ import os
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.error import TimedOut
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from core.agent import Agent
 from interfaces.notifier import TelegramNotifier
@@ -73,13 +73,38 @@ async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_message = update.message.text
 
     await update.message.chat.send_action(ChatAction.TYPING)
+
+    engine = getattr(agent, "_reasoning", None)
+    use_status = engine is not None and engine.needs_iteration(user_message)
+    status_msg = await update.message.reply_text("🔄 Přemýšlím…") if use_status else None
+
+    async def update_status(text: str) -> None:
+        if status_msg is not None:
+            try:
+                await status_msg.edit_text(text)
+            except Exception:
+                pass
+
     try:
-        response = await agent.process(user_message, session_id, user_id)
+        response = await agent.process(
+            user_message, session_id, user_id,
+            progress_callback=update_status if use_status else None,
+        )
     except Exception:
         logger.exception("Neočekávaná chyba při zpracování zprávy (session=%s)", session_id)
+        if status_msg is not None:
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
         await _safe_reply(update, "Omlouvám se, nastala neočekávaná chyba.")
         return
 
+    if status_msg is not None:
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
     await _safe_reply(update, response)
 
 
@@ -121,6 +146,38 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"(Chyba TTS: {e})")
 
 
+async def _handle_confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route inline keyboard button taps to the ConfirmationGate."""
+    query = update.callback_query
+    await query.answer()
+
+    gate = context.bot_data.get("confirmation_gate")
+    if gate is None:
+        await query.edit_message_text("No confirmation gate configured.")
+        return
+
+    data: str = query.data
+    if data.startswith("confirm_"):
+        token = data[len("confirm_"):]
+        approved = True
+    elif data.startswith("deny_"):
+        token = data[len("deny_"):]
+        approved = False
+    else:
+        logger.warning("Unknown callback_data: %s", data)
+        return
+
+    if not gate.has_pending(token):
+        await query.edit_message_text("This request has already expired or been resolved.")
+        return
+
+    gate.resolve(token, approved)
+    action = "APPROVED" if approved else "DENIED"
+    original_lines = query.message.text.splitlines()
+    tool_line = original_lines[2] if len(original_lines) > 2 else ""
+    await query.edit_message_text(f"{action}: {tool_line}")
+
+
 async def run_telegram(
     agent: Agent,
     stt: SpeechToText,
@@ -128,6 +185,7 @@ async def run_telegram(
     token: str,
     user_id: str,
     notifier: TelegramNotifier | None = None,
+    confirmation_gate=None,  # ConfirmationGate | None
 ) -> None:
     """Spustí Telegram bot."""
     app = (
@@ -148,12 +206,14 @@ async def run_telegram(
     app.bot_data["tts"] = tts
     app.bot_data["user_id"] = user_id
     app.bot_data["notifier"] = notifier
+    app.bot_data["confirmation_gate"] = confirmation_gate
 
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("memory", _cmd_memory))
     app.add_handler(CommandHandler("newsession", _cmd_newsession))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_text))
     app.add_handler(MessageHandler(filters.VOICE, _handle_voice))
+    app.add_handler(CallbackQueryHandler(_handle_confirmation_callback))
 
     logger.info("Telegram bot spuštěn")
     async with app:

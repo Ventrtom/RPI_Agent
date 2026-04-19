@@ -1,0 +1,4 @@
+# torch must be installed BEFORE this group (see setup.sh)
+mem0ai>=0.1.0
+chromadb>=0.5.0
+sentence-transformers>=3.0.0

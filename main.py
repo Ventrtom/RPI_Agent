@@ -87,6 +87,7 @@ async def main() -> None:
         remove_contact,
         )
     from interfaces.notifier import TelegramNotifier
+    from tools.confirmation import ConfirmationGate
     from scheduler import TaskScheduler, TaskStore
     from tools.telegram_tools import (
         SEND_TELEGRAM_MESSAGE_SCHEMA,
@@ -124,6 +125,18 @@ async def main() -> None:
         list_own_source,
         read_own_source,
         )
+    from vault.vault_manager import VaultManager
+    from vault.indexer import VaultIndexer
+    from vault.tools import (
+        VAULT_READ_SCHEMA,
+        VAULT_WRITE_SCHEMA,
+        VAULT_SEARCH_SCHEMA,
+        init_vault_tools,
+        vault_read,
+        vault_write,
+        vault_search,
+        )
+    from reasoning.engine import ReasoningEngine
 
     registry = ToolRegistry()
     registry.register(get_system_status)
@@ -150,23 +163,41 @@ async def main() -> None:
     registry.register(get_self_info, GET_SELF_INFO_SCHEMA)
     registry.register(list_own_source, LIST_OWN_SOURCE_SCHEMA)
     registry.register(read_own_source, READ_OWN_SOURCE_SCHEMA)
+    registry.register(vault_read, VAULT_READ_SCHEMA)
+    registry.register(vault_write, VAULT_WRITE_SCHEMA)
+    registry.register(vault_search, VAULT_SEARCH_SCHEMA)
     logger.info("Tools registered: %s", [fn.__name__ for fn in registry.get_all()])
 
     tasks_db_path = os.getenv("TASKS_DB_PATH", "./data/tasks.db")
     scheduler_tz = os.getenv("SCHEDULER_TIMEZONE", "Europe/Prague")
 
+    vault_path = Path(os.getenv("VAULT_PATH", "./vault"))
+    vault_manager = VaultManager(base_path=vault_path)
+    vault_manager.rebuild_index()
+    vault_indexer = VaultIndexer(vault_manager)
+    vault_indexer.start()
+    init_vault_tools(vault_manager)
+    logger.info("Vault initialised at %s", vault_path)
+
     memory_client = MemoryClient(user_id=mem0_user_id, chroma_path=chroma_path)
     claude_client = ClaudeClient(api_key=anthropic_api_key, model=model)
     session_store = SessionStore(db_path=session_db_path)
     session_manager = SessionManager(timeout_minutes=session_timeout, store=session_store)
+
+    reasoning_engine = ReasoningEngine(claude_client, vault_manager=vault_manager)
+    logger.info("ReasoningEngine initialised (MAX_ITERATIONS=%d)", ReasoningEngine.MAX_ITERATIONS)
+
+    notifier = TelegramNotifier()
+    confirmation_gate = ConfirmationGate(notifier)
+
     agent = Agent(
         memory_client=memory_client,
         claude_client=claude_client,
         session_manager=session_manager,
         tool_registry=registry,
+        reasoning_engine=reasoning_engine,
+        confirmation_gate=confirmation_gate,
     )
-
-    notifier = TelegramNotifier()
     init_telegram_tools(notifier)
     init_self_tools(claude_client, memory_client, registry)
     init_source_tools(Path(__file__).parent)
@@ -197,7 +228,15 @@ async def main() -> None:
         stt = SpeechToText(api_key=groq_api_key, model_name=whisper_model, language=whisper_language)
         tts = TextToSpeech(api_key=elevenlabs_api_key, voice_id=elevenlabs_voice_id, model=elevenlabs_model)
 
-        await run_telegram(agent=agent, stt=stt, tts=tts, token=telegram_token, user_id=mem0_user_id, notifier=notifier)
+        await run_telegram(
+            agent=agent,
+            stt=stt,
+            tts=tts,
+            token=telegram_token,
+            user_id=mem0_user_id,
+            notifier=notifier,
+            confirmation_gate=confirmation_gate,
+        )
 
 
 if __name__ == "__main__":

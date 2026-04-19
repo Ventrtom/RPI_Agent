@@ -42,6 +42,20 @@ class TelegramNotifier:
             )
         await self._bot.send_message(chat_id=self._chat_id, text=text)
 
+    async def send_with_keyboard(self, text: str, token: str) -> None:
+        """Send a message with Approve / Deny inline keyboard for tool confirmation."""
+        if not self.ready:
+            raise RuntimeError(
+                "Cannot send keyboard — chat_id not known yet. "
+                "Ask Tomas to send /start to the bot first."
+            )
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup  # lazy import keeps CLI clean
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Approve", callback_data=f"confirm_{token}"),
+            InlineKeyboardButton("Deny",    callback_data=f"deny_{token}"),
+        ]])
+        await self._bot.send_message(chat_id=self._chat_id, text=text, reply_markup=keyboard)
+
     # ------------------------------------------------------------------
     # Chat ID persistence
     # ------------------------------------------------------------------

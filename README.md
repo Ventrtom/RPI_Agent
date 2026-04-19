@@ -85,7 +85,7 @@ main.py                      ← entry point, validace env, sestavení závislos
 
 - Python 3.11+
 - Raspberry Pi (nebo jiný Linux systém) s přístupem na internet
-- ~500 MB místa na disku (ChromaDB, embedding model, venv)
+- **Disk:** ~2–3 GB na Raspberry Pi (CPU-only torch), ~5+ GB na x86 s CUDA torch
 - Systémový balíček pro audio (u hlasových zpráv): žádný — vše přes API
 
 ---
@@ -109,15 +109,40 @@ main.py                      ← entry point, validace env, sestavení závislos
 git clone <url-repozitare>
 cd agent
 
-# 2. Vytvoř a aktivuj virtuální prostředí
+# 2. Spusť setup skript — detekuje hardware a nainstaluje správnou verzi PyTorche
+chmod +x setup.sh
+./setup.sh
+```
+
+Skript automaticky:
+- Detekuje architekturu (ARM64 = RPi, x86_64 = server), NVIDIA GPU a verzi CUDA
+- Nainstaluje PyTorch ve správné variantě **před** `sentence-transformers`:
+  - **Raspberry Pi (ARM64):** CPU-only (~200 MB místo ~900 MB CUDA verze)
+  - **x86 + NVIDIA GPU:** CUDA build (verze detekována z `nvidia-smi`)
+  - **x86 bez GPU:** CPU-only
+- Nainstaluje všechny skupiny závislostí ze `requirements/`
+- Ověří import klíčových balíčků a zobrazí shrnutí
+
+> **Poznámka k disku:** Na Raspberry Pi zabere venv přibližně 2–3 GB. Na x86 serveru s CUDA torch počítej s 5+ GB.
+
+### Manuální instalace (pokročilí uživatelé)
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3. Nainstaluj závislosti
-pip install -r requirements.txt
-```
+# ARM64 (Raspberry Pi) — CPU-only torch
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-> **Poznámka:** Instalace `sentence-transformers` stahuje embedding model (~90 MB). Na Raspberry Pi to může trvat několik minut.
+# x86 s CUDA 12.4
+# pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+pip install -r requirements/base.txt
+pip install -r requirements/memory.txt
+pip install -r requirements/voice.txt
+pip install -r requirements/telegram.txt
+pip install -r requirements/google.txt
+```
 
 ---
 

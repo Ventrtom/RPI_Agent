@@ -1,0 +1,2 @@
+python-telegram-bot>=21.0
+watchdog>=4.0.0
