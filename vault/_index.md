@@ -1,5 +1,5 @@
 # Vault Index
-_Poslední aktualizace: 2026-04-18 00:00_
+_Poslední aktualizace: 2026-04-20 00:00_
 
 ## /
 - [[about-me]] – Who the user is, their preferences and context

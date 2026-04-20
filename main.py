@@ -198,6 +198,31 @@ async def main() -> None:
         reasoning_engine=reasoning_engine,
         confirmation_gate=confirmation_gate,
     )
+    # Home Assistant (optional — silently skipped if HA_URL / HA_TOKEN not set)
+    ha_url = os.getenv("HA_URL")
+    ha_token = os.getenv("HA_TOKEN")
+    if ha_url and ha_token:
+        from tools.ha_client import HAClient
+        from tools.ha_tools import (
+            HA_CALL_SERVICE_SCHEMA,
+            HA_GET_HISTORY_SCHEMA,
+            HA_GET_STATE_SCHEMA,
+            HA_LIST_ENTITIES_SCHEMA,
+            ha_call_service,
+            ha_get_history,
+            ha_get_state,
+            ha_list_entities,
+            init_ha_tools,
+        )
+        ha_timeout = float(os.getenv("HA_TIMEOUT", "10"))
+        ha_client = HAClient(base_url=ha_url, token=ha_token, timeout=ha_timeout)
+        init_ha_tools(ha_client)
+        registry.register(ha_list_entities, HA_LIST_ENTITIES_SCHEMA)
+        registry.register(ha_get_state, HA_GET_STATE_SCHEMA)
+        registry.register(ha_call_service, HA_CALL_SERVICE_SCHEMA)
+        registry.register(ha_get_history, HA_GET_HISTORY_SCHEMA)
+        logger.info("Home Assistant tools registered (%s)", ha_url)
+
     init_telegram_tools(notifier)
     init_self_tools(claude_client, memory_client, registry)
     init_source_tools(Path(__file__).parent)

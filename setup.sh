@@ -202,6 +202,7 @@ verify_import "croniter"
 verify_import "watchdog"
 verify_import "yaml"               "pyyaml"
 verify_import "psutil"
+verify_import "httpx"
 
 echo ""
 TORCH_VER=$("$PYTHON" -c "import torch; print(torch.__version__)")
@@ -228,6 +229,11 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
 else
     ok ".env already exists"
 fi
+
+info "Ensuring runtime directories exist..."
+mkdir -p "${SCRIPT_DIR}/data"
+mkdir -p "${SCRIPT_DIR}/credentials"
+ok "Runtime directories ready (data/, credentials/)"
 
 # ── Done ────────────────────────────────────────────────────────────────────────
 header "=== Setup Complete ==="

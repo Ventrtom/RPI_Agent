@@ -15,11 +15,13 @@ logger = logging.getLogger(__name__)
 DANGEROUS_TOOLS: frozenset[str] = frozenset({
     "restart_agent_service",
     "shutdown_raspberry_pi",
+    "ha_call_service",
 })
 
 _TOOL_LABELS: dict[str, str] = {
     "restart_agent_service": "Restart agent service",
     "shutdown_raspberry_pi": "Shutdown / reboot Raspberry Pi",
+    "ha_call_service": "Home Assistant service call",
 }
 
 _TIMEOUT_SECONDS = 60
