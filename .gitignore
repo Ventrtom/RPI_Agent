@@ -12,3 +12,8 @@ __pycache__/
 credentials/google_token.json
 credentials/google_oauth.json
 data/contacts.json
+vault/**/*.md
+vault/about-me.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
