@@ -60,7 +60,7 @@ class Agent:
         system_prompt = build_system_prompt(memories, is_voice=is_voice, is_scheduled=is_scheduled)
 
         history = await self._sessions.get_history(session_id)
-        voice_suffix = "\n\n[Respond in english in flowing sentences without markdown, bullet points or headings.]" if is_voice else ""
+        voice_suffix = "\n\n[Respond in flowing sentences without markdown, bullet points or headings.]" if is_voice else ""
         messages = history + [{"role": "user", "content": user_message + voice_suffix}]
 
         tools = self._tools.get_schemas() if self._tools and len(self._tools) > 0 else None
