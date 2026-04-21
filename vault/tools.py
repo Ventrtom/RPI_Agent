@@ -126,3 +126,52 @@ async def vault_search(query: str) -> str:
     except Exception as exc:
         logger.exception("vault_search failed: %s", query)
         return f"Error searching vault: {exc}"
+
+
+VAULT_PATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "path": {
+            "type": "string",
+            "description": (
+                "Relative path to an existing vault file to edit. The file must "
+                "already exist — use vault_write to create new files."
+            ),
+        },
+        "heading": {
+            "type": "string",
+            "description": (
+                "Exact text of the Markdown section heading to replace "
+                "(without the # prefix), e.g. 'Pracovní oblast' or 'Koníčky'. "
+                "The match is case-insensitive. If the section does not exist it will be appended."
+            ),
+        },
+        "new_content": {
+            "type": "string",
+            "description": (
+                "New body text for this section (everything after the heading line). "
+                "Do NOT include the heading itself. Supports full Markdown."
+            ),
+        },
+    },
+    "required": ["path", "heading", "new_content"],
+}
+
+
+async def vault_patch(path: str, heading: str, new_content: str) -> str:
+    """
+    Edit a single Markdown section in an existing vault file without touching
+    the rest of the document. Use this instead of vault_write whenever you are
+    updating or adding one section of an existing file. Safe for critical files
+    like about-me.md — all other sections are preserved exactly as-is.
+    """
+    if _vault_manager is None:
+        return "Error: vault tools not initialised."
+    try:
+        await asyncio.to_thread(_vault_manager.patch_section, path, heading, new_content)
+        return f"Vault section '{heading}' updated in {path}"
+    except FileNotFoundError:
+        return "File not found — use vault_write to create it first"
+    except Exception as exc:
+        logger.exception("vault_patch failed: %s", path)
+        return f"Error patching vault file: {exc}"

@@ -16,6 +16,7 @@ class _Handler(FileSystemEventHandler):
         self._vm = vault_manager
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
+        self._rebuilding = False
 
     def on_any_event(self, event) -> None:
         if event.is_directory:
@@ -24,6 +25,8 @@ class _Handler(FileSystemEventHandler):
         if not src.endswith(".md") or "_index.md" in src:
             return
         with self._lock:
+            if self._rebuilding:
+                return
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(_DEBOUNCE_SECONDS, self._rebuild)
@@ -32,10 +35,15 @@ class _Handler(FileSystemEventHandler):
 
     def _rebuild(self) -> None:
         try:
+            with self._lock:
+                self._rebuilding = True
             self._vm.rebuild_index()
             logger.info("Vault index rebuilt")
         except Exception:
             logger.exception("Vault index rebuild failed")
+        finally:
+            with self._lock:
+                self._rebuilding = False
 
 
 class VaultIndexer:

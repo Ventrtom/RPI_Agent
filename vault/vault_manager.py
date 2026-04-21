@@ -48,6 +48,36 @@ class VaultManager:
         separator = "\n" if existing and not existing.endswith("\n") else ""
         self.write(path, existing + separator + text)
 
+    def patch_section(self, path: str, heading: str, new_content: str) -> str:
+        abs_path = self._abs(path)
+        if not abs_path.exists():
+            raise FileNotFoundError(path)
+        content = abs_path.read_text(encoding="utf-8")
+        lines = content.splitlines(keepends=True)
+
+        heading_pattern = heading.strip().lower()
+        heading_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#") and stripped.lstrip("#").strip().lower() == heading_pattern:
+                heading_idx = i
+                break
+
+        if heading_idx is not None:
+            end_idx = len(lines)
+            for i in range(heading_idx + 1, len(lines)):
+                if lines[i].startswith("#"):
+                    end_idx = i
+                    break
+            body = new_content if new_content.endswith("\n") else new_content + "\n"
+            result = "".join(lines[:heading_idx + 1] + [body] + lines[end_idx:])
+        else:
+            suffix = "" if content.endswith("\n") else "\n"
+            result = content + suffix + f"\n## {heading}\n\n{new_content}"
+
+        self.write(path, result)
+        return result
+
     def search(self, query: str) -> list[dict]:
         results = []
         q = query.lower()
