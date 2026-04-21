@@ -19,6 +19,7 @@ class Session:
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_activity: datetime = field(default_factory=datetime.utcnow)
     status: str = "active"  # "active" | "closed"
+    active_voice_profile: str | None = None
 
 
 class SessionManager:
@@ -65,6 +66,17 @@ class SessionManager:
         if session and session.status == "active":
             return list(session.messages)
         return []
+
+    async def set_voice_profile(self, session_id: str, profile: str | None) -> None:
+        session = self._sessions.get(session_id)
+        if session and session.status == "active":
+            session.active_voice_profile = profile
+
+    async def get_voice_profile(self, session_id: str) -> str | None:
+        session = self._sessions.get(session_id)
+        if session and session.status == "active":
+            return session.active_voice_profile
+        return None
 
     async def close_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)

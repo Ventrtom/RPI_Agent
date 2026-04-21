@@ -137,6 +137,7 @@ async def main() -> None:
         vault_search,
         )
     from reasoning.engine import ReasoningEngine
+    from tools.voice_tools import SET_VOICE_PROFILE_SCHEMA, set_voice_profile
 
     registry = ToolRegistry()
     registry.register(get_system_status)
@@ -166,6 +167,7 @@ async def main() -> None:
     registry.register(vault_read, VAULT_READ_SCHEMA)
     registry.register(vault_write, VAULT_WRITE_SCHEMA)
     registry.register(vault_search, VAULT_SEARCH_SCHEMA)
+    registry.register(set_voice_profile, SET_VOICE_PROFILE_SCHEMA)
     logger.info("Tools registered: %s", [fn.__name__ for fn in registry.get_all()])
 
     tasks_db_path = os.getenv("TASKS_DB_PATH", "./data/tasks.db")
@@ -260,6 +262,7 @@ async def main() -> None:
                 tts=tts,
                 token=telegram_token,
                 user_id=mem0_user_id,
+                session_manager=session_manager,
                 notifier=notifier,
                 confirmation_gate=confirmation_gate,
             )

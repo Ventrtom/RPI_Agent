@@ -3,17 +3,21 @@ import io
 import logging
 import os
 
+from langdetect import LangDetectException, detect
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.error import TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from core.agent import Agent
+from core.session import SessionManager
 from interfaces.notifier import TelegramNotifier
 from voice.stt import SpeechToText
 from voice.tts import TextToSpeech
 
 logger = logging.getLogger(__name__)
+
+_ctx: dict = {"session_id": None}
 
 
 def _session_id(update: Update) -> str:
@@ -85,6 +89,7 @@ async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             except Exception:
                 pass
 
+    _ctx["session_id"] = session_id
     try:
         response = await agent.process(
             user_message, session_id, user_id,
@@ -129,6 +134,7 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(f"_{user_message}_", parse_mode="Markdown")
 
     await update.message.chat.send_action(ChatAction.TYPING)
+    _ctx["session_id"] = session_id
     try:
         response_text = await agent.process(user_message, session_id, user_id, is_voice=True)
     except Exception:
@@ -139,7 +145,17 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await _safe_reply(update, response_text)
 
     try:
-        audio_bytes = await tts.synthesize(response_text)
+        detected_lang = detect(response_text)
+    except LangDetectException:
+        logger.warning("TTS: language detection failed (session=%s)", session_id)
+        detected_lang = None
+
+    session_manager: SessionManager = context.bot_data["session_manager"]
+    override = await session_manager.get_voice_profile(session_id)
+    profile = override if override is not None else detected_lang
+
+    try:
+        audio_bytes = await tts.synthesize(response_text, voice_profile=profile)
         await update.message.reply_voice(voice=io.BytesIO(audio_bytes))
     except Exception as e:
         logger.warning("Chyba TTS (session=%s): %s", session_id, e)
@@ -184,6 +200,7 @@ async def run_telegram(
     tts: TextToSpeech,
     token: str,
     user_id: str,
+    session_manager: SessionManager,
     notifier: TelegramNotifier | None = None,
     confirmation_gate=None,  # ConfirmationGate | None
 ) -> None:
@@ -207,6 +224,10 @@ async def run_telegram(
     app.bot_data["user_id"] = user_id
     app.bot_data["notifier"] = notifier
     app.bot_data["confirmation_gate"] = confirmation_gate
+    app.bot_data["session_manager"] = session_manager
+
+    from tools.voice_tools import init_voice_tools
+    init_voice_tools(session_manager, lambda: _ctx["session_id"])
 
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("memory", _cmd_memory))
