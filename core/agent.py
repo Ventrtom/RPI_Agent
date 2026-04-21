@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from core.prompts import build_system_prompt
 from core.session import SessionManager
@@ -9,6 +10,8 @@ from tools import ToolRegistry
 from tools.confirmation import DANGEROUS_TOOLS
 
 logger = logging.getLogger(__name__)
+
+_SCHEDULED_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS_SCHEDULED", "2048"))
 
 
 class Agent:
@@ -78,6 +81,7 @@ class Agent:
                     messages=messages,
                     tools=tools,
                     tool_executor=tool_executor,
+                    max_tokens=_SCHEDULED_MAX_TOKENS if is_scheduled else None,
                 )
         except Exception:
             logger.exception("Error with calling Claude API (session=%s)", session_id)

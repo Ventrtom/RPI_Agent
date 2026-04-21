@@ -233,35 +233,38 @@ async def main() -> None:
     scheduler.start()
     logger.info("TaskScheduler started (tz=%s, db=%s)", scheduler_tz, tasks_db_path)
 
-    if mode == "cli":
-        from interfaces.cli import run_cli
-        await run_cli(agent, user_id=mem0_user_id)
+    try:
+        if mode == "cli":
+            from interfaces.cli import run_cli
+            await run_cli(agent, user_id=mem0_user_id)
 
-    elif mode == "telegram":
-        telegram_token = _require("TELEGRAM_BOT_TOKEN")
-        elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
-        elevenlabs_voice_id = os.getenv("ELEVENLABS_VOICE_ID")
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
-        whisper_model = os.getenv("WHISPER_MODEL") or None
-        whisper_language = os.getenv("WHISPER_LANGUAGE") or None
+        elif mode == "telegram":
+            telegram_token = _require("TELEGRAM_BOT_TOKEN")
+            elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+            elevenlabs_voice_id = os.getenv("ELEVENLABS_VOICE_ID")
+            groq_api_key = os.getenv("GROQ_API_KEY")
+            elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+            whisper_model = os.getenv("WHISPER_MODEL") or None
+            whisper_language = os.getenv("WHISPER_LANGUAGE") or None
 
-        from interfaces.telegram_bot import run_telegram
-        from voice.stt import SpeechToText
-        from voice.tts import TextToSpeech
+            from interfaces.telegram_bot import run_telegram
+            from voice.stt import SpeechToText
+            from voice.tts import TextToSpeech
 
-        stt = SpeechToText(api_key=groq_api_key, model_name=whisper_model, language=whisper_language)
-        tts = TextToSpeech(api_key=elevenlabs_api_key, voice_id=elevenlabs_voice_id, model=elevenlabs_model)
+            stt = SpeechToText(api_key=groq_api_key, model_name=whisper_model, language=whisper_language)
+            tts = TextToSpeech(api_key=elevenlabs_api_key, voice_id=elevenlabs_voice_id, model=elevenlabs_model)
 
-        await run_telegram(
-            agent=agent,
-            stt=stt,
-            tts=tts,
-            token=telegram_token,
-            user_id=mem0_user_id,
-            notifier=notifier,
-            confirmation_gate=confirmation_gate,
-        )
+            await run_telegram(
+                agent=agent,
+                stt=stt,
+                tts=tts,
+                token=telegram_token,
+                user_id=mem0_user_id,
+                notifier=notifier,
+                confirmation_gate=confirmation_gate,
+            )
+    finally:
+        vault_manager.stop()
 
 
 if __name__ == "__main__":

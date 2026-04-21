@@ -5,3 +5,4 @@
 -r requirements/voice.txt
 -r requirements/telegram.txt
 -r requirements/google.txt
+-r requirements/dev.txt

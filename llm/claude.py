@@ -32,6 +32,7 @@ class ClaudeClient:
         """
         current_messages = list(messages)
 
+        logger.debug("complete() max_tokens=%d", max_tokens)
         while True:
             kwargs: dict = {
                 "model": self._model,

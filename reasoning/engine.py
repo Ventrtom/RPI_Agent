@@ -19,6 +19,17 @@ _KEYWORDS = [
     "co si myslíš o", "jak bych měl",
 ]
 
+_UNCERTAINTY_PHRASES = (
+    "i don't have enough information",
+    "could you clarify",
+    "i'm not sure",
+    "to answer this properly i would need",
+    "i need more context",
+    "can you provide more details",
+    "i cannot determine",
+    "it's unclear",
+)
+
 _STEP_PROMPTS: dict[str, str] = {
     "diagnose": (
         "Analyze this request carefully. What exactly is being asked? "
@@ -55,6 +66,7 @@ class ReasoningEngine:
     def __init__(self, claude_client: ClaudeClient, vault_manager: "VaultManager | None" = None) -> None:
         self._claude = claude_client
         self._vault = vault_manager
+        self._max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS_REASONING", "4096"))
 
     # ------------------------------------------------------------------
     # Public
@@ -70,7 +82,15 @@ class ReasoningEngine:
         progress_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
         if not self.needs_iteration(user_input):
-            return await self._direct_response(system_prompt, messages, tools, tool_executor)
+            direct = await self._direct_response(system_prompt, messages, tools, tool_executor)
+            probe_enabled = os.getenv("REASONING_CONFIDENCE_PROBE", "true").lower() == "true"
+            if probe_enabled and self._is_uncertain(direct):
+                logger.debug(
+                    "Confidence probe triggered: direct response contained uncertainty signal, "
+                    "running full reasoning cycle. Input: %.80s", user_input
+                )
+            else:
+                return direct
 
         ctx = ReasoningContext(user_input=user_input)
 
@@ -128,12 +148,17 @@ class ReasoningEngine:
     # Internal
     # ------------------------------------------------------------------
 
+    def _is_uncertain(self, text: str) -> bool:
+        lower = text.lower()
+        return any(phrase in lower for phrase in _UNCERTAINTY_PHRASES)
+
     async def _direct_response(self, system_prompt, messages, tools, tool_executor) -> str:
         return await self._claude.complete(
             system=system_prompt,
             messages=messages,
             tools=tools,
             tool_executor=tool_executor,
+            max_tokens=self._max_tokens,
         )
 
     async def _run_step(
@@ -175,6 +200,7 @@ class ReasoningEngine:
                 messages=messages,
                 tools=tools if step_type in ("gather", "act", "finalize") else None,
                 tool_executor=wrapped_executor,
+                max_tokens=self._max_tokens,
             )
         except Exception:
             logger.exception("ReasoningEngine step %s failed", step_type)
