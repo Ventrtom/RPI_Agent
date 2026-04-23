@@ -153,6 +153,18 @@ async def _safe_reply(update: Update, text: str) -> None:
         await update.message.reply_text(text)
 
 
+async def _keep_typing(chat, stop_event: asyncio.Event, interval: float = 4.0) -> None:
+    while not stop_event.is_set():
+        try:
+            await chat.send_action(ChatAction.TYPING)
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     agent: Agent = context.bot_data["agent"]
     notifier: TelegramNotifier = context.bot_data["notifier"]
@@ -161,7 +173,8 @@ async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session_id = _session_id(update)
     user_message = update.message.text
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    stop_typing = asyncio.Event()
+    asyncio.create_task(_keep_typing(update.message.chat, stop_typing))
 
     engine = getattr(agent, "_reasoning", None)
     use_status = engine is not None and engine.needs_iteration(user_message)
@@ -189,6 +202,8 @@ async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 pass
         await _safe_reply(update, "Omlouvám se, nastala neočekávaná chyba.")
         return
+    finally:
+        stop_typing.set()
 
     if status_msg is not None:
         try:
@@ -207,18 +222,21 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id: str = context.bot_data["user_id"]
     session_id = _session_id(update)
 
+    stop_typing = asyncio.Event()
+    asyncio.create_task(_keep_typing(update.message.chat, stop_typing))
+
     try:
         voice_file = await update.message.voice.get_file()
         audio_bytes = await voice_file.download_as_bytearray()
         user_message = await stt.transcribe(bytes(audio_bytes))
     except Exception as e:
+        stop_typing.set()
         logger.exception("Chyba při přepisu hlasu (session=%s)", session_id)
         await update.message.reply_text(f"Chyba při přepisu hlasu: {e}")
         return
 
     await update.message.reply_text(f"_{user_message}_", parse_mode="Markdown")
 
-    await update.message.chat.send_action(ChatAction.TYPING)
     _ctx["session_id"] = session_id
     try:
         response_text = await agent.process(user_message, session_id, user_id, is_voice=True)
@@ -226,6 +244,8 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.exception("Neočekávaná chyba při zpracování hlasové zprávy (session=%s)", session_id)
         await _safe_reply(update, "Omlouvám se, nastala neočekávaná chyba.")
         return
+    finally:
+        stop_typing.set()
 
     await _safe_reply(update, response_text)
 
