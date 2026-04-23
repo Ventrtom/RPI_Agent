@@ -17,6 +17,8 @@ class ReasoningContext:
     user_input: str
     steps: list[ReasoningStep] = field(default_factory=list)
     iteration: int = 0
+    # Záznamy delegací na subagenty; zatím nikdo nevyplňuje (připraveno pro Fázi 1+)
+    delegations: list[dict] = field(default_factory=list)
 
     def add_step(self, step: ReasoningStep) -> None:
         self.steps.append(step)

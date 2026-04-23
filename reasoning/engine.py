@@ -242,11 +242,19 @@ class ReasoningEngine:
         try:
             ts = datetime.now().strftime("%Y-%m-%d-%H-%M")
             path = f"reasoning-traces/{ts}.md"
+            delegation_section = ""
+            if ctx.delegations:
+                delegation_section = (
+                    f"\n# Delegations\n```json\n"
+                    f"{json.dumps(ctx.delegations, ensure_ascii=False, indent=2)}"
+                    f"\n```\n"
+                )
             content = (
                 f"---\nsummary: \"Reasoning trace {ts}\"\n"
                 f"updated: \"{datetime.now().date().isoformat()}\"\n---\n\n"
                 f"# Query\n{ctx.user_input}\n\n"
                 f"# Steps\n```json\n{ctx.to_json()}\n```\n"
+                f"{delegation_section}"
             )
             await asyncio.to_thread(self._vault.write, path, content)
         except Exception:
