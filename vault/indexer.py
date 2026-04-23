@@ -24,6 +24,7 @@ class _Handler(FileSystemEventHandler):
         src = getattr(event, "src_path", "")
         if not src.endswith(".md") or "_index.md" in src:
             return
+        logger.debug("Vault event: %s %s", event.event_type, src)
         with self._lock:
             if self._rebuilding:
                 return

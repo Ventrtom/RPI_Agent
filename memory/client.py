@@ -45,16 +45,19 @@ class MemoryClient:
             )
             return [r["memory"] for r in results.get("results", [])]
         except Exception:
-            logger.warning("ChromaDB search failed, continuing without memories")
+            logger.warning("ChromaDB search failed, continuing without memories", exc_info=True)
             return []
 
     async def add(self, messages: list[dict]) -> None:
         """Extrahuje a uloží fakta z konverzace."""
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            partial(self._memory.add, messages, user_id=self._user_id),
-        )
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                partial(self._memory.add, messages, user_id=self._user_id),
+            )
+        except Exception:
+            logger.exception("Memory add failed (Mem0/ChromaDB error)")
 
     async def get_all(self) -> list[str]:
         """Vrátí všechny uložené vzpomínky — pro debug."""

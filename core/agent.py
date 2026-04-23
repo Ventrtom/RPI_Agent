@@ -204,6 +204,9 @@ class Agent:
             return "Reflexe se nepodařila — Claude API chyba."
 
     async def _save_memory(self, messages: list[dict]) -> None:
+        delay = float(os.getenv("MEMORY_SAVE_DELAY_SECONDS", "3"))
+        if delay > 0:
+            await asyncio.sleep(delay)
         try:
             await self._memory.add(messages)
         except Exception:

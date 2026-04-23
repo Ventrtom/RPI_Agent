@@ -16,9 +16,6 @@ class VaultManager:
         self._base = Path(base_path or os.getenv("VAULT_PATH", "./vault")).resolve()
         self._base.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._debounce_delay = float(os.getenv("VAULT_INDEX_DEBOUNCE_SECONDS", "5"))
-        self._timer: threading.Timer | None = None
-        self._timer_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -33,14 +30,9 @@ class VaultManager:
         updated = self._set_updated(content)
         with self._lock:
             abs_path.write_text(updated, encoding="utf-8")
-        self._schedule_reindex()
 
     def stop(self) -> None:
-        """Cancel any pending debounced reindex timer."""
-        with self._timer_lock:
-            if self._timer is not None:
-                self._timer.cancel()
-                self._timer = None
+        pass
 
     def append(self, path: str, text: str) -> None:
         abs_path = self._abs(path)
@@ -137,17 +129,6 @@ class VaultManager:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _schedule_reindex(self) -> None:
-        if self._debounce_delay == 0:
-            self.rebuild_index()
-            return
-        with self._timer_lock:
-            if self._timer is not None:
-                self._timer.cancel()
-            self._timer = threading.Timer(self._debounce_delay, self.rebuild_index)
-            self._timer.daemon = True
-            self._timer.start()
 
     def _abs(self, path: str) -> Path:
         abs_path = (self._base / path).resolve()
