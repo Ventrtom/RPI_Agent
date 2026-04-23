@@ -91,6 +91,22 @@ def test_compute_next_run_weekly_curator_cron():
     assert result.hour == 0       # 02:00 CEST = 00:00 UTC
 
 
+def test_compute_next_run_accepts_string_timezone():
+    # main.py passes scheduler_tz as a plain string — must not raise TypeError
+    after = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+    result = compute_next_run("0 8 * * *", after, "Europe/Prague")
+    assert result.tzinfo == timezone.utc
+    assert result.hour == 7  # same as ZoneInfo("Europe/Prague") version
+
+
+def test_compute_next_run_string_and_zoneinfo_equivalent():
+    # Passing a string or a ZoneInfo for the same timezone must give identical output
+    after = datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc)
+    result_str = compute_next_run("0 2 * * 0", after, "Europe/Prague")
+    result_zi = compute_next_run("0 2 * * 0", after, _PRAGUE)
+    assert result_str == result_zi
+
+
 # ---------------------------------------------------------------------------
 # TaskStore
 # ---------------------------------------------------------------------------
@@ -292,13 +308,20 @@ async def test_scheduler_execute_clears_running_ids():
 # ---------------------------------------------------------------------------
 
 
-def _register_curator_if_needed(task_store: TaskStore, cron: str = "0 2 * * 0") -> None:
-    """Mirrors the main.py startup logic for _curator_weekly registration."""
+def _register_curator_if_needed(
+    task_store: TaskStore, cron: str = "0 2 * * 0", tz_name: str = "Europe/Prague"
+) -> None:
+    """Mirrors the main.py startup logic for _curator_weekly registration.
+
+    Intentionally passes tz_name as a plain string (not ZoneInfo) to match
+    the main.py pattern: scheduler_tz = os.getenv(...) → string passed to
+    compute_next_run. This ensures the test catches the TypeError that bit us.
+    """
     existing = task_store.list_tasks()
     if any(t.name == "_curator_weekly" for t in existing):
         return
     now = datetime.now(timezone.utc)
-    next_run = compute_next_run(cron, now, _PRAGUE)
+    next_run = compute_next_run(cron, now, tz_name)  # string, not ZoneInfo
     task_store.save_task(Task(
         id=str(uuid.uuid4()),
         name="_curator_weekly",

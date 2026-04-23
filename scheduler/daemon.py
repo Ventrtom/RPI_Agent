@@ -21,12 +21,15 @@ logger = logging.getLogger(__name__)
 _POLL_INTERVAL = 60  # seconds
 
 
-def compute_next_run(cron_expr: str, after_utc: datetime, tz: ZoneInfo) -> datetime:
+def compute_next_run(cron_expr: str, after_utc: datetime, tz: ZoneInfo | str) -> datetime:
     """Return the next UTC datetime when cron_expr fires after after_utc.
 
     The cron expression is interpreted in local wall-clock time (tz),
     so e.g. '0 8 * * *' means 08:00 Prague time regardless of DST.
+    tz may be a ZoneInfo instance or an IANA timezone string.
     """
+    if isinstance(tz, str):
+        tz = ZoneInfo(tz)
     after_local = after_utc.astimezone(tz)
     it = croniter(cron_expr, after_local)
     next_local = it.get_next(datetime)
