@@ -183,6 +183,33 @@ async def main() -> None:
 
     memory_client = MemoryClient(user_id=mem0_user_id, chroma_path=chroma_path)
     claude_client = ClaudeClient(api_key=anthropic_api_key, model=model)
+
+    from agents.glaedr import Glaedr
+    from tools.subagent_tools import make_memory_dive_tool, MEMORY_DIVE_SCHEMA
+
+    glaedr = Glaedr(
+        claude_client=claude_client,
+        memory_client=memory_client,
+        vault_manager=vault_manager,
+        tool_registry=registry,
+    )
+    memory_dive = make_memory_dive_tool(glaedr)
+    registry.register(memory_dive, MEMORY_DIVE_SCHEMA)
+    logger.info("Glaedr subagent initialised, memory_dive tool registered")
+
+    from agents.veritas import Veritas
+    from tools.subagent_tools import make_deep_research_tool, DEEP_RESEARCH_SCHEMA
+
+    veritas = Veritas(
+        claude_client=claude_client,
+        memory_client=memory_client,
+        vault_manager=vault_manager,
+        tool_registry=registry,
+    )
+    deep_research = make_deep_research_tool(veritas)
+    registry.register(deep_research, DEEP_RESEARCH_SCHEMA)
+    logger.info("Veritas subagent initialised, deep_research tool registered")
+
     session_store = SessionStore(db_path=session_db_path)
     session_manager = SessionManager(timeout_minutes=session_timeout, store=session_store)
 
@@ -191,6 +218,23 @@ async def main() -> None:
 
     notifier = TelegramNotifier()
     confirmation_gate = ConfirmationGate(notifier)
+
+    from agents.aeterna import Aeterna
+    from tools.subagent_tools import (
+        make_plan_task_tool, PLAN_TASK_SCHEMA,
+        make_review_schedule_tool, REVIEW_SCHEDULE_SCHEMA,
+    )
+
+    aeterna = Aeterna(
+        claude_client=claude_client,
+        tool_registry=registry,
+        confirmation_gate=confirmation_gate,
+    )
+    plan_task = make_plan_task_tool(aeterna)
+    review_my_schedule = make_review_schedule_tool(aeterna)
+    registry.register(plan_task, PLAN_TASK_SCHEMA)
+    registry.register(review_my_schedule, REVIEW_SCHEDULE_SCHEMA)
+    logger.info("Aeterna subagent initialised, plan_task + review_my_schedule registered")
 
     agent = Agent(
         memory_client=memory_client,
