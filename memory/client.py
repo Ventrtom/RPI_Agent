@@ -41,7 +41,7 @@ class MemoryClient:
             loop = asyncio.get_running_loop()
             results = await loop.run_in_executor(
                 None,
-                partial(self._memory.search, query, user_id=self._user_id, limit=limit),
+                partial(self._memory.search, query, filters={"user_id": self._user_id}, top_k=limit),
             )
             return [r["memory"] for r in results.get("results", [])]
         except Exception:
@@ -64,7 +64,7 @@ class MemoryClient:
         loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(
             None,
-            partial(self._memory.get_all, user_id=self._user_id),
+            partial(self._memory.get_all, filters={"user_id": self._user_id}),
         )
         return [r["memory"] for r in results.get("results", [])]
 
@@ -73,7 +73,7 @@ class MemoryClient:
         loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(
             None,
-            partial(self._memory.get_all, user_id=self._user_id),
+            partial(self._memory.get_all, filters={"user_id": self._user_id}),
         )
         count = len(results.get("results", []))
 
