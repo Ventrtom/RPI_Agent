@@ -26,11 +26,11 @@ Uživatel → Prime (core/agent.py)
 
 Prime zůstává jediným kontaktním bodem pro uživatele. Subagenti nikdy nekomunikují přímo s uživatelem.
 
-## Plánované subagenty
+## Subagenty
 
 | Subagent | Role | Scoped tools | Status | Fáze |
 |----------|------|--------------|--------|------|
-| **Glaedr** | Paměť a kurátorství | vault_read, vault_search, memory (read-only) | ✅ Implemented (retrieve) | 1 |
+| **Glaedr** | Paměť a kurátorství | vault_read, vault_search, memory (read-only); curator: + vault_write (restricted) | ✅ Implemented (retrieve + curator, Phases 1+4) | 1+4 |
 | **Veritas** | Výzkum a syntéza | web_search, vault_read, vault_search, memory (read-only seed) | ✅ Implemented (research) | 2 |
 | **Aeterna** | Plánování a čas | scheduler CRUD, calendar CRUD, contacts (read-only) | ✅ Implemented (schedule + review) | 3 |
 
@@ -58,6 +58,29 @@ Prime dostává SubagentResult.summary → formuluje odpověď uživateli
 
 Kdy delegovat: komplexní recall vyžadující syntézu přes více zápisů nebo vault souborů.
 Kdy NEDelegovat: přímá odpověď z paměťového kontextu v system promptu, nebo jednoduchý `vault_read` se známou cestou.
+
+### Glaedr curator
+
+Glaedr běží proaktivně na týdenním plánu (konfigurovatelné přes `CURATOR_CRON`) pro údržbu paměti. Produkuje markdown digesty v `vault/memory-digests/` obsahující:
+
+- Přehled aktuálního stavu paměti
+- Klíčová témata seskupená podle tematiky
+- Potenciální duplikáty (návrhy ke konsolidaci)
+- Detekované konflikty (návrhy k řešení)
+- Navrhované tagy (návrhy ke kategorizaci)
+- Pravděpodobně zastaralé vzpomínky (časově ohraničené fakty, které pravděpodobně vypršely)
+- Poznámky k housekeepingu
+
+**Curator je propose-only.** Nikdy nemodifikuje paměť autonomně. Všechny návrhy jsou manuálně kontrolovány uživatelem.
+
+Manuální spuštění: tool `memory_housekeeping(scope, dry_run)` — volatelný Prime, když uživatel požádá.
+
+Příklady frází, které spustí delegaci na curator:
+- "Udělej mi housekeeping paměti"
+- "Jak to vypadá v paměti?"
+- "Zkontroluj si tam tu paměť"
+- "Dej mi přehled toho, co si pamatuješ"
+- "Máš tam bordel?"
 
 Příklad průchodu při volání `deep_research`:
 
@@ -103,6 +126,7 @@ Prime dostává SubagentResult.summary + data["object_id"] → potvrzuje uživat
 | Rychlý aktuální fakt (počasí, kurz, zpráva) | — | `web_search` přímo |
 | Jednoduchý schedule dotaz ("co mám zítra?") | — | `get_calendar_events` přímo |
 | Hlubší recall + syntéza přes více vzpomínek nebo vault souborů | Glaedr | `memory_dive` |
+| Kontrola/housekeeping paměti | Glaedr curator | `memory_housekeeping` |
 | Výzkum kombinující web + interní znalosti | Veritas | `deep_research` |
 | Komplexní scheduling intent (čas, recurrence, konflikty) | Aeterna | `plan_task` |
 | Přehled a health check naplánovaných věcí | Aeterna | `review_my_schedule` |
@@ -121,7 +145,7 @@ Prime dostává SubagentResult.summary + data["object_id"] → potvrzuje uživat
 | Soubor | Obsah |
 |--------|-------|
 | `base.py` | `SubagentResult` dataclass + `BaseSubagent` třída |
-| `glaedr.py` | Glaedr — paměťový specialista |
+| `glaedr.py` | Glaedr — paměťový specialista (retrieve + curator mode) |
 | `veritas.py` | Veritas — výzkumný specialista |
 | `aeterna.py` | Aeterna — specialistka na plánování a čas |
 | `README.md` | Tento dokument |
