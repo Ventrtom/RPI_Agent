@@ -46,8 +46,37 @@ async def main() -> None:
     mem0_user_id = os.getenv("MEM0_USER_ID", "tomas")
     session_timeout = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
     model = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+    obs_path = Path(os.getenv("OBSERVABILITY_PATH", "./data/observability"))
+    tel_max_mb = float(os.getenv("TELEMETRY_MAX_SIZE_MB", "10"))
 
     logger.info("RPI Agent — model=%s  chroma=%s  mode=%s", model, chroma_path, mode)
+
+    # --- observability ---
+    from observability import (
+        TelemetryLogger, FeedbackRecorder, SessionSnapshotManager,
+        ObservabilityReader, ObservabilityBundle,
+    )
+    from tools.observability_tools import (
+        GET_OBSERVABILITY_DATA_SCHEMA,
+        get_observability_data,
+        init_observability_tools,
+    )
+
+    telemetry_logger = TelemetryLogger(obs_path / "telemetry.jsonl", max_size_mb=tel_max_mb)
+    feedback_recorder = FeedbackRecorder(obs_path)
+    obs_reader = ObservabilityReader(obs_path)
+    snapshot_manager = SessionSnapshotManager(
+        base_path=obs_path / "sessions",
+        telemetry_log_path=obs_path / "telemetry.jsonl",
+    )
+    obs_bundle = ObservabilityBundle(
+        telemetry=telemetry_logger,
+        feedback=feedback_recorder,
+        snapshots=snapshot_manager,
+        reader=obs_reader,
+    )
+    init_observability_tools(obs_reader)
+    logger.info("Observability initialised at %s", obs_path)
 
     # --- závislosti ---
     from core.agent import Agent
@@ -139,7 +168,7 @@ async def main() -> None:
     from reasoning.engine import ReasoningEngine
     from tools.voice_tools import SET_VOICE_PROFILE_SCHEMA, set_voice_profile
 
-    registry = ToolRegistry()
+    registry = ToolRegistry(telemetry_logger=telemetry_logger)
     registry.register(get_system_status)
     registry.register(get_agent_logs, GET_AGENT_LOGS_SCHEMA)
     registry.register(restart_agent_service)
@@ -168,6 +197,7 @@ async def main() -> None:
     registry.register(vault_write, VAULT_WRITE_SCHEMA)
     registry.register(vault_search, VAULT_SEARCH_SCHEMA)
     registry.register(set_voice_profile, SET_VOICE_PROFILE_SCHEMA)
+    registry.register(get_observability_data, GET_OBSERVABILITY_DATA_SCHEMA)
     logger.info("Tools registered: %s", [fn.__name__ for fn in registry.get_all()])
 
     tasks_db_path = os.getenv("TASKS_DB_PATH", "./data/tasks.db")
@@ -184,18 +214,29 @@ async def main() -> None:
     memory_client = MemoryClient(user_id=mem0_user_id, chroma_path=chroma_path)
     claude_client = ClaudeClient(api_key=anthropic_api_key, model=model)
 
+    # Notifier instanciován brzy — potřebuje ho Glaedr curator pro Telegram notifikace.
+    # ConfirmationGate se napojí na stejnou instanci níže.
+    notifier = TelegramNotifier()
+
     from agents.glaedr import Glaedr
-    from tools.subagent_tools import make_memory_dive_tool, MEMORY_DIVE_SCHEMA
+    from tools.subagent_tools import (
+        make_memory_dive_tool, MEMORY_DIVE_SCHEMA,
+        make_memory_housekeeping_tool, MEMORY_HOUSEKEEPING_SCHEMA,
+    )
 
     glaedr = Glaedr(
         claude_client=claude_client,
         memory_client=memory_client,
         vault_manager=vault_manager,
         tool_registry=registry,
+        notifier=notifier,
+        telemetry_logger=telemetry_logger,
     )
     memory_dive = make_memory_dive_tool(glaedr)
+    memory_housekeeping = make_memory_housekeeping_tool(glaedr)
     registry.register(memory_dive, MEMORY_DIVE_SCHEMA)
-    logger.info("Glaedr subagent initialised, memory_dive tool registered")
+    registry.register(memory_housekeeping, MEMORY_HOUSEKEEPING_SCHEMA)
+    logger.info("Glaedr subagent initialised, memory_dive + memory_housekeeping registered")
 
     from agents.veritas import Veritas
     from tools.subagent_tools import make_deep_research_tool, DEEP_RESEARCH_SCHEMA
@@ -205,18 +246,23 @@ async def main() -> None:
         memory_client=memory_client,
         vault_manager=vault_manager,
         tool_registry=registry,
+        telemetry_logger=telemetry_logger,
     )
     deep_research = make_deep_research_tool(veritas)
     registry.register(deep_research, DEEP_RESEARCH_SCHEMA)
     logger.info("Veritas subagent initialised, deep_research tool registered")
 
     session_store = SessionStore(db_path=session_db_path)
-    session_manager = SessionManager(timeout_minutes=session_timeout, store=session_store)
+    session_manager = SessionManager(
+        timeout_minutes=session_timeout,
+        store=session_store,
+        snapshot_manager=snapshot_manager,
+        telemetry_logger=telemetry_logger,
+    )
 
     reasoning_engine = ReasoningEngine(claude_client, vault_manager=vault_manager)
     logger.info("ReasoningEngine initialised (MAX_ITERATIONS=%d)", ReasoningEngine.MAX_ITERATIONS)
 
-    notifier = TelegramNotifier()
     confirmation_gate = ConfirmationGate(notifier)
 
     from agents.aeterna import Aeterna
@@ -229,6 +275,7 @@ async def main() -> None:
         claude_client=claude_client,
         tool_registry=registry,
         confirmation_gate=confirmation_gate,
+        telemetry_logger=telemetry_logger,
     )
     plan_task = make_plan_task_tool(aeterna)
     review_my_schedule = make_review_schedule_tool(aeterna)
@@ -275,6 +322,50 @@ async def main() -> None:
 
     task_store = TaskStore(db_path=tasks_db_path)
     init_scheduler_tools(task_store, scheduler_tz)
+
+    # Registrace systémového _curator_weekly tasku (jednou při prvním startu)
+    _existing_tasks = task_store.list_tasks()
+    _curator_existing = next((t for t in _existing_tasks if t.name == "_curator_weekly"), None)
+    if _curator_existing is None:
+        from datetime import datetime as _dt, timezone as _tz
+        from scheduler.models import Task as _Task, TaskType as _TaskType, TaskStatus as _TaskStatus
+        from scheduler.daemon import compute_next_run as _compute_next_run
+        import uuid as _uuid_mod
+        _curator_cron = os.getenv("CURATOR_CRON", "0 2 * * 0")
+        _now_utc = _dt.now(_tz.utc)
+        _next_run = _compute_next_run(_curator_cron, _now_utc, scheduler_tz)
+        task_store.save_task(_Task(
+            id=str(_uuid_mod.uuid4()),
+            name="_curator_weekly",
+            prompt=(
+                "Spusť Glaedr curator — proveď týdenní memory housekeeping "
+                "(scope='week', dry_run=false)."
+            ),
+            task_type=_TaskType.RECURRING,
+            timezone=scheduler_tz,
+            status=_TaskStatus.PENDING,
+            retry_count=0,
+            max_retries=3,
+            timeout_seconds=600,
+            created_at=_now_utc,
+            updated_at=_now_utc,
+            run_at=None,
+            cron_expr=_curator_cron,
+            last_run_at=None,
+            next_run_at=_next_run,
+            end_at=None,
+        ))
+        logger.info("Registered _curator_weekly task (cron=%s, next_run=%s)", _curator_cron, _next_run)
+    else:
+        _expected_cron = os.getenv("CURATOR_CRON", "0 2 * * 0")
+        if _curator_existing.cron_expr != _expected_cron:
+            logger.warning(
+                "_curator_weekly task exists with cron=%r, but CURATOR_CRON env=%r "
+                "— update the task manually if needed.",
+                _curator_existing.cron_expr,
+                _expected_cron,
+            )
+
     scheduler = TaskScheduler(task_store, agent, user_id=mem0_user_id, timezone_name=scheduler_tz)
     scheduler.start()
     logger.info("TaskScheduler started (tz=%s, db=%s)", scheduler_tz, tasks_db_path)
@@ -282,7 +373,12 @@ async def main() -> None:
     try:
         if mode == "cli":
             from interfaces.cli import run_cli
-            await run_cli(agent, user_id=mem0_user_id)
+            await run_cli(
+                agent,
+                user_id=mem0_user_id,
+                observability=obs_bundle,
+                session_manager=session_manager,
+            )
 
         elif mode == "telegram":
             telegram_token = _require("TELEGRAM_BOT_TOKEN")
@@ -309,6 +405,7 @@ async def main() -> None:
                 session_manager=session_manager,
                 notifier=notifier,
                 confirmation_gate=confirmation_gate,
+                observability=obs_bundle,
             )
     finally:
         vault_manager.stop()

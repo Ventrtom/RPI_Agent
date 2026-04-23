@@ -86,6 +86,7 @@ class Veritas(BaseSubagent):
         vault_manager: VaultManager,
         tool_registry: ToolRegistry,
         model: str | None = None,
+        telemetry_logger=None,
     ) -> None:
         self._memory = memory_client
         self._vault = vault_manager  # uloženo pro případné budoucí rozšíření
@@ -126,6 +127,7 @@ class Veritas(BaseSubagent):
             name="veritas",
             system_prompt=VERITAS_SYSTEM_PROMPT,
             max_iterations=max_iterations,
+            telemetry_logger=telemetry_logger,
         )
 
     async def research(self, topic: str, scope: str | None = None) -> SubagentResult:
@@ -160,7 +162,7 @@ class Veritas(BaseSubagent):
             )
 
         task = self._build_veritas_task(topic, scope, initial_memories)
-        result = await self.run(task)
+        result = await self.run(task, _method="research")
 
         # Augmentace metadat o per-call počty tool volání
         result.metadata["web_search_calls"] = self._tool_counters["web_search_calls"]

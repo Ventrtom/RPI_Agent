@@ -140,6 +140,12 @@ Prime dostává SubagentResult.summary + data["object_id"] → potvrzuje uživat
 5. Registruj odpovídající tool wrapper v `tools/subagent_tools.py`.
 6. Zdokumentuj hranice autonomie v `vault/instrukce/autonomy_boundaries.md`.
 
+## Observability
+
+Každá delegace na subagenta je automaticky logovaná do `data/observability/telemetry.jsonl` jako `delegation` event s metadaty: subagent, method (retrieve/curate/research/schedule/review), latency_ms, success, task_preview.
+
+Prime může tato data číst přes `get_observability_data` tool a odpovídat na otázky jako "Kolikrát jsi delegovala na Glaedra?" nebo "Kde se opakovaně dělají chyby?".
+
 ## Soubory
 
 | Soubor | Obsah |

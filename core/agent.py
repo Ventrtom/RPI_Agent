@@ -13,6 +13,26 @@ logger = logging.getLogger(__name__)
 
 _SCHEDULED_MAX_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS_SCHEDULED", "2048"))
 
+_REFLECTION_PROMPT = """You are Prime, reflecting on a recent conversation with your user to help them improve your behavior. You will receive the full conversation history for this session.
+
+Your reflection should be honest, concise (~200-400 words), and focused on what could be improved. Not an evaluation for praise — an evaluation for growth.
+
+Consider:
+- Did I delegate correctly? Any cases where I should have delegated but didn't, or delegated when atomic tool would have sufficed?
+- Did the subagents I used return useful output? Too long, too short, off-topic?
+- Did I handle errors/conflicts well if any occurred?
+- Did I match the user's communication style?
+- Any patterns I notice about this session that might be relevant for future improvement?
+
+Output format (plain text, no markdown sections):
+
+Paragraph 1: Overall assessment in 2-3 sentences.
+Paragraph 2: What went well (be specific, cite examples).
+Paragraph 3: What didn't go well or could be improved (be specific, cite examples).
+Paragraph 4: One concrete suggestion for future sessions.
+
+Do not praise. Be your own honest critic."""
+
 
 class Agent:
     def __init__(
@@ -51,6 +71,9 @@ class Agent:
         6. Asynchronously save new facts to Mem0 in background
         7. Return text response
         """
+        from observability.telemetry import _current_session_id
+        _current_session_id.set(session_id)
+
         await self._sessions.get_or_create(session_id, user_id)
         try:
             memories = await self._memory.search(user_message)
@@ -156,6 +179,29 @@ class Agent:
     async def get_all_memories(self) -> list[str]:
         """Return all stored long-term memories (for /memory command)."""
         return await self._memory.get_all()
+
+    async def generate_self_reflection(self, session_id: str) -> str:
+        """Zavolá Claude s reflection promptem na historii session."""
+        history = await self._sessions.get_history(session_id)
+        if not history:
+            return "Nemám co reflektovat, session je prázdná."
+        reflection_model = os.getenv("REFLECTION_MODEL") or os.getenv(
+            "CLAUDE_MODEL", "claude-haiku-4-5-20251001"
+        )
+        from llm.claude import ClaudeClient as _CC
+        reflection_client = _CC(api_key=os.getenv("ANTHROPIC_API_KEY", ""), model=reflection_model)
+        history_text = "\n".join(
+            f"{m['role'].upper()}: {m['content']}" for m in history[-20:]
+        )
+        try:
+            return await reflection_client.complete(
+                system=_REFLECTION_PROMPT,
+                messages=[{"role": "user", "content": history_text}],
+                max_tokens=800,
+            )
+        except Exception:
+            logger.exception("generate_self_reflection selhal (session=%s)", session_id)
+            return "Reflexe se nepodařila — Claude API chyba."
 
     async def _save_memory(self, messages: list[dict]) -> None:
         try:

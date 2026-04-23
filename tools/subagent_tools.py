@@ -1,10 +1,10 @@
 """
 Tools for delegating tasks from Prime to subagents (Glaedr, Aeterna, Veritas).
 
-- Phase 1: memory_dive (Glaedr retrieve)  ← implementováno
-- Phase 2: deep_research (Veritas)         ← implementováno
+- Phase 1: memory_dive (Glaedr retrieve)           ← implementováno
+- Phase 2: deep_research (Veritas)                  ← implementováno
 - Phase 3: plan_task, review_my_schedule (Aeterna)  ← implementováno
-- Phase 4: memory_housekeeping (Glaedr curator)
+- Phase 4: memory_housekeeping (Glaedr curator)     ← implementováno
 """
 
 from collections.abc import Callable
@@ -270,3 +270,71 @@ def make_review_schedule_tool(aeterna: Aeterna) -> Callable:
         }
 
     return review_my_schedule
+
+
+MEMORY_HOUSEKEEPING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scope": {
+            "type": "string",
+            "description": (
+                "Optional scope: 'week' (default, memories since last curator run), "
+                "'month' (last 30 days worth, approx), 'all' (entire memory), "
+                "or a specific tag/topic. Omit for default weekly scope."
+            ),
+        },
+        "dry_run": {
+            "type": "boolean",
+            "description": (
+                "If true, curator analyzes and returns digest without writing to vault "
+                "or updating state. Use for preview. Default false."
+            ),
+            "default": False,
+        },
+    },
+    "required": [],
+}
+
+
+def make_memory_housekeeping_tool(glaedr: Glaedr) -> Callable:
+    """
+    Vytvoří tool funkci memory_housekeeping vázanou na danou instanci Glaedra.
+
+    Factory pattern zaručuje, že tool má referenci na konkrétní instanci
+    a může být registrován v ToolRegistry bez module-level singletonu.
+    """
+
+    async def memory_housekeeping(scope: str | None = None, dry_run: bool = False) -> dict:
+        """
+        Trigger Glaedr's curator mode — a manual memory housekeeping run. Glaedr reviews
+        the long-term memory, identifies themes, detects duplicates/conflicts, suggests tags,
+        and writes a structured digest to the vault under memory-digests/.
+
+        Use this when:
+        - The user explicitly asks for a memory review or housekeeping
+          ("jak to vypadá v paměti?", "udělej kontrolu paměti", "dej mi přehled toho, co si pamatuješ")
+        - You want a dry_run preview before applying anything (set dry_run=true)
+        - The user suspects stale or conflicting info in memory
+
+        Do NOT use this for:
+        - Simple memory recall — use memory_dive (Glaedr retrieve) instead
+        - Routine queries — the curator runs automatically weekly in the background
+
+        Returns a digest (markdown path + inline summary). The digest contains PROPOSALS only —
+        no memory is modified autonomously.
+        """
+        result = await glaedr.curate(scope, dry_run)
+        if result.success:
+            return {
+                "success": True,
+                "summary": result.summary,
+                "data": result.data,
+                "metadata": result.metadata,
+            }
+        return {
+            "success": False,
+            "error": result.error or "Curator failed without a specific error",
+            "metadata": result.metadata,
+        }
+
+    return memory_housekeeping

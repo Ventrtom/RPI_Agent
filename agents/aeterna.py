@@ -183,6 +183,7 @@ class Aeterna(BaseSubagent):
         confirmation_gate=None,  # tools.confirmation.ConfirmationGate | None
         model: str | None = None,
         is_scheduled_context: bool = False,
+        telemetry_logger=None,
     ) -> None:
         scoped_tools = [
             s for s in tool_registry.get_schemas()
@@ -218,6 +219,7 @@ class Aeterna(BaseSubagent):
             name="aeterna",
             system_prompt=AETERNA_SYSTEM_PROMPT,
             max_iterations=max_iterations,
+            telemetry_logger=telemetry_logger,
         )
 
     async def schedule(self, intent: str, context: dict | None = None) -> SubagentResult:
@@ -241,7 +243,7 @@ class Aeterna(BaseSubagent):
             return SubagentResult(success=False, summary="", error="Empty intent")
 
         task_prompt = self._build_schedule_task(intent, context)
-        result = await self.run(task_prompt)
+        result = await self.run(task_prompt, _method="schedule")
 
         if result.success:
             result.data = _parse_schedule_output(result.summary)
@@ -261,7 +263,7 @@ class Aeterna(BaseSubagent):
             data = {"tasks_count": N, "events_count": M, "issues": [...]} pokud parsovatelné.
         """
         task_prompt = self._build_review_task(scope)
-        result = await self.run(task_prompt)
+        result = await self.run(task_prompt, _method="review")
         return result
 
     def _build_schedule_task(self, intent: str, context: dict | None) -> str:

@@ -15,6 +15,18 @@ from interfaces.notifier import TelegramNotifier
 from voice.stt import SpeechToText
 from voice.tts import TextToSpeech
 
+_HELP_TEXT = """Dostupné příkazy:
+
+/start — nová konverzace, inicializace session
+/newsession — ukončí aktuální session a začne novou
+/memory — zobrazí všechny uložené vzpomínky
+/feedback <text> — uloží tvoji poznámku k mému chování s kontextem posledních zpráv
+/self-reflect — vytvořím sebereflexi aktuální session
+/snapshot [tag] — uloží aktuální session (volitelně s tagem)
+/help — tento přehled
+
+Tip: feedback a snapshoty mi pomáhají učit se a tobě dávají data pro pozdější iterativní ladění."""
+
 logger = logging.getLogger(__name__)
 
 _ctx: dict = {"session_id": None}
@@ -56,6 +68,79 @@ async def _cmd_newsession(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session_id = _session_id(update)
     await agent.close_session(session_id)
     await update.message.reply_text("Session ukončena. Začínáme znovu.")
+
+
+async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(_HELP_TEXT)
+
+
+async def _cmd_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    bundle = context.bot_data.get("observability")
+    session_manager: SessionManager = context.bot_data["session_manager"]
+    session_id = _session_id(update)
+
+    text = " ".join(context.args) if context.args else ""
+    if not text:
+        await update.message.reply_text("Použití: /feedback <tvá poznámka>")
+        return
+
+    history = await session_manager.get_history(session_id)
+    if bundle is None:
+        await update.message.reply_text("Observability není nakonfigurováno.")
+        return
+
+    try:
+        path = await bundle.feedback.record_feedback(text, session_id, history)
+        await update.message.reply_text(f"Feedback uložen: {path}")
+    except Exception as e:
+        logger.exception("_cmd_feedback selhal (session=%s)", session_id)
+        await update.message.reply_text(f"Chyba při ukládání feedbacku: {e}")
+
+
+async def _cmd_self_reflect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    agent: Agent = context.bot_data["agent"]
+    bundle = context.bot_data.get("observability")
+    session_id = _session_id(update)
+
+    if bundle is None:
+        await update.message.reply_text("Observability není nakonfigurováno.")
+        return
+
+    await update.message.chat.send_action("typing")
+    reflection = await agent.generate_self_reflection(session_id)
+
+    try:
+        path = await bundle.feedback.save_reflection(reflection, session_id, {})
+        preview = reflection[:500]
+        await update.message.reply_text(f"{preview}\n\n_(Uloženo: {path})_", parse_mode="Markdown")
+    except Exception as e:
+        logger.exception("_cmd_self_reflect selhal (session=%s)", session_id)
+        await update.message.reply_text(reflection)
+
+
+async def _cmd_snapshot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    bundle = context.bot_data.get("observability")
+    session_manager: SessionManager = context.bot_data["session_manager"]
+    session_id = _session_id(update)
+
+    if bundle is None:
+        await update.message.reply_text("Observability není nakonfigurováno.")
+        return
+
+    tag = context.args[0] if context.args else None
+    session = session_manager.get_session(session_id)
+    if session is None:
+        await update.message.reply_text("Žádná aktivní session k uložení.")
+        return
+
+    try:
+        path = await bundle.snapshots.save_snapshot(session, snapshot_type="manual", tag=tag)
+        await update.message.reply_text(f"Snapshot uložen: {path}")
+    except ValueError as e:
+        await update.message.reply_text(f"Neplatný tag: {e}")
+    except Exception as e:
+        logger.exception("_cmd_snapshot selhal (session=%s)", session_id)
+        await update.message.reply_text(f"Chyba při ukládání snapshotu: {e}")
 
 
 async def _safe_reply(update: Update, text: str) -> None:
@@ -203,6 +288,7 @@ async def run_telegram(
     session_manager: SessionManager,
     notifier: TelegramNotifier | None = None,
     confirmation_gate=None,  # ConfirmationGate | None
+    observability=None,  # ObservabilityBundle | None
 ) -> None:
     """Spustí Telegram bot."""
     app = (
@@ -225,6 +311,7 @@ async def run_telegram(
     app.bot_data["notifier"] = notifier
     app.bot_data["confirmation_gate"] = confirmation_gate
     app.bot_data["session_manager"] = session_manager
+    app.bot_data["observability"] = observability
 
     from tools.voice_tools import init_voice_tools
     init_voice_tools(session_manager, lambda: _ctx["session_id"])
@@ -232,6 +319,10 @@ async def run_telegram(
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("memory", _cmd_memory))
     app.add_handler(CommandHandler("newsession", _cmd_newsession))
+    app.add_handler(CommandHandler("help", _cmd_help))
+    app.add_handler(CommandHandler("feedback", _cmd_feedback))
+    app.add_handler(CommandHandler("self_reflect", _cmd_self_reflect))
+    app.add_handler(CommandHandler("snapshot", _cmd_snapshot))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_text))
     app.add_handler(MessageHandler(filters.VOICE, _handle_voice))
     app.add_handler(CallbackQueryHandler(_handle_confirmation_callback))

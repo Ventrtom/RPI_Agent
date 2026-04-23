@@ -4,13 +4,19 @@ Sdílený základ pro všechny subagenty Prime.
 Obsahuje SubagentResult (standardizovaný návratový typ) a BaseSubagent
 (abstraktní kostra — konkrétní subagenti dědí a přizpůsobují _build_task_prompt).
 """
+from __future__ import annotations
+
 import logging
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from llm.claude import ClaudeClient
+
+if TYPE_CHECKING:
+    from observability.telemetry import TelemetryLogger
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,7 @@ class BaseSubagent:
         system_prompt: str,
         max_iterations: int = 10,
         model: str | None = None,
+        telemetry_logger: TelemetryLogger | None = None,
     ) -> None:
         self.claude_client = claude_client
         self.scoped_tools = scoped_tools
@@ -70,8 +77,9 @@ class BaseSubagent:
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
         self.model = model
+        self._telemetry_logger = telemetry_logger
 
-    async def run(self, task: str, context: dict | None = None) -> SubagentResult:
+    async def run(self, task: str, context: dict | None = None, _method: str = "run") -> SubagentResult:
         """
         Spustí subagenta na daném úkolu a vrátí SubagentResult.
 
@@ -116,7 +124,7 @@ class BaseSubagent:
                 latency_ms,
                 tool_calls_count,
             )
-            return SubagentResult(
+            result = SubagentResult(
                 success=True,
                 summary=summary,
                 metadata={
@@ -129,7 +137,7 @@ class BaseSubagent:
         except Exception as exc:
             latency_ms = int((time.monotonic() - start) * 1000)
             logger.exception("[%s] Subagent '%s' failed", trace_id, self.name)
-            return SubagentResult(
+            result = SubagentResult(
                 success=False,
                 summary="",
                 error=str(exc),
@@ -140,6 +148,22 @@ class BaseSubagent:
                     "tool_calls_count": tool_calls_count,
                 },
             )
+
+        if self._telemetry_logger:
+            from observability.telemetry import _current_session_id
+            sid = _current_session_id.get("")
+            try:
+                await self._telemetry_logger.log_delegation(
+                    subagent=self.name,
+                    method=_method,
+                    task=task,
+                    result=result,
+                    session_id=sid,
+                )
+            except Exception:
+                logger.warning("Telemetry log_delegation selhal (subagent=%s)", self.name)
+
+        return result
 
     def _build_task_prompt(self, task: str, context: dict | None) -> str:
         """Sestaví prompt předaný Claude. Subagenti mohou přepsat."""

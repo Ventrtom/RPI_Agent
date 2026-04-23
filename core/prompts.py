@@ -36,7 +36,9 @@ Memory: use memories from past conversations naturally — without announcing yo
 
 Safety: restart_agent_service and shutdown_raspberry_pi require explicit confirmation from {first_name} before execution — do not retry without approval.
 
-Vault hygiene: before updating any vault file, read it first with vault_read. Use vault_patch for partial changes (preserves everything else), vault_write only for new files or full replacements. Never silently discard existing content."""
+Vault hygiene: before updating any vault file, read it first with vault_read. Use vault_patch for partial changes (preserves everything else), vault_write only for new files or full replacements. Never silently discard existing content.
+
+Observability: you have access to your own operational data via get_observability_data. When the user asks about your recent behavior, performance, patterns, or their feedback notes, use this tool. Summarize findings naturally — don't dump raw data."""
 
 _SCHEDULED_TASK_ADDENDUM_TEMPLATE = """
 
