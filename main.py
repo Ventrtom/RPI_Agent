@@ -328,12 +328,13 @@ async def main() -> None:
     _curator_existing = next((t for t in _existing_tasks if t.name == "_curator_weekly"), None)
     if _curator_existing is None:
         from datetime import datetime as _dt, timezone as _tz
+        from zoneinfo import ZoneInfo as _ZoneInfo
         from scheduler.models import Task as _Task, TaskType as _TaskType, TaskStatus as _TaskStatus
         from scheduler.daemon import compute_next_run as _compute_next_run
         import uuid as _uuid_mod
         _curator_cron = os.getenv("CURATOR_CRON", "0 2 * * 0")
         _now_utc = _dt.now(_tz.utc)
-        _next_run = _compute_next_run(_curator_cron, _now_utc, scheduler_tz)
+        _next_run = _compute_next_run(_curator_cron, _now_utc, _ZoneInfo(scheduler_tz))
         task_store.save_task(_Task(
             id=str(_uuid_mod.uuid4()),
             name="_curator_weekly",
