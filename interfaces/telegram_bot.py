@@ -294,6 +294,7 @@ async def run_telegram(
     app = (
         Application.builder()
         .token(token)
+        .concurrent_updates(True)
         .connect_timeout(30.0)
         .read_timeout(30.0)
         .write_timeout(30.0)
