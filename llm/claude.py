@@ -16,10 +16,12 @@ class ClaudeClient:
         self._model = model
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
+        self._session_cache_creation_tokens: int = 0
+        self._session_cache_read_tokens: int = 0
 
     async def complete(
         self,
-        system: str,
+        system: str | list[dict],
         messages: list[dict],
         max_tokens: int = _DEFAULT_MAX_TOKENS,
         tools: list[dict] | None = None,
@@ -31,12 +33,15 @@ class ClaudeClient:
         until Claude returns a final text response.
         """
         current_messages = list(messages)
+        system_payload: list[dict] = (
+            [{"type": "text", "text": system}] if isinstance(system, str) else system
+        )
 
         logger.debug("complete() max_tokens=%d", max_tokens)
         while True:
             kwargs: dict = {
                 "model": self._model,
-                "system": system,
+                "system": system_payload,
                 "messages": current_messages,
                 "max_tokens": max_tokens,
             }
@@ -47,13 +52,18 @@ class ClaudeClient:
 
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
+            cache_create = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
             self._session_input_tokens += input_tokens
             self._session_output_tokens += output_tokens
+            self._session_cache_creation_tokens += cache_create
+            self._session_cache_read_tokens += cache_read
             logger.debug(
-                "tokens in=%d out=%d total=%d stop=%s",
+                "tokens in=%d out=%d cache_create=%d cache_read=%d stop=%s",
                 input_tokens,
                 output_tokens,
-                input_tokens + output_tokens,
+                cache_create,
+                cache_read,
                 response.stop_reason,
             )
 
@@ -90,4 +100,6 @@ class ClaudeClient:
             "input_tokens": self._session_input_tokens,
             "output_tokens": self._session_output_tokens,
             "total_tokens": total,
+            "cache_creation_tokens": self._session_cache_creation_tokens,
+            "cache_read_tokens": self._session_cache_read_tokens,
         }

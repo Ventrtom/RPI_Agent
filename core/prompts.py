@@ -53,7 +53,7 @@ Rules for autonomous execution:
 6. Do not call plan_task (Aeterna) unless the scheduling intent is fully specified (time, date, and task details are known). If details are missing or ambiguous, send {first_name} a Telegram message listing what's unclear rather than guessing."""
 
 
-def build_system_prompt(memories: list[str], is_voice: bool = False, is_scheduled: bool = False) -> str:
+def build_system_prompt(memories: list[str], is_voice: bool = False, is_scheduled: bool = False) -> list[dict]:
     tz_name = os.getenv("SCHEDULER_TIMEZONE", "Europe/Prague")
     tz = ZoneInfo(tz_name)
     now_local = datetime.now(tz)
@@ -62,16 +62,19 @@ def build_system_prompt(memories: list[str], is_voice: bool = False, is_schedule
     full_name = os.getenv("AGENT_USER_NAME", "Tomáš Ventruba")
     first_name = full_name.split()[0]
 
-    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(full_name=full_name, first_name=first_name)
-    scheduled_addendum = _SCHEDULED_TASK_ADDENDUM_TEMPLATE.format(first_name=first_name)
-
-    base = system_prompt + f"\n\nCurrent date and time: {now_str}"
-
+    static_part = _SYSTEM_PROMPT_TEMPLATE.format(full_name=full_name, first_name=first_name)
     if is_scheduled:
-        base += scheduled_addendum
+        static_part += _SCHEDULED_TASK_ADDENDUM_TEMPLATE.format(first_name=first_name)
 
+    dynamic_parts = [f"Current date and time: {now_str}"]
     if memories:
         memory_block = "\n".join(f"- {m}" for m in memories)
-        base += f"\n<memory>\n{memory_block}\n</memory>"
+        dynamic_parts.append(f"<memory>\n{memory_block}\n</memory>")
+    dynamic_text = "\n\n".join(dynamic_parts)
 
-    return base
+    blocks: list[dict] = [
+        {"type": "text", "text": static_part, "cache_control": {"type": "ephemeral"}}
+    ]
+    if dynamic_text:
+        blocks.append({"type": "text", "text": dynamic_text})
+    return blocks

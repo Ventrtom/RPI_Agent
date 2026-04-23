@@ -65,7 +65,7 @@ class BaseSubagent:
         scoped_tools: list[dict],
         tool_executor: Callable,
         name: str,
-        system_prompt: str,
+        system_prompt: str | list[dict],
         max_iterations: int = 10,
         model: str | None = None,
         telemetry_logger: TelemetryLogger | None = None,
@@ -74,7 +74,12 @@ class BaseSubagent:
         self.scoped_tools = scoped_tools
         self.tool_executor = tool_executor
         self.name = name
-        self.system_prompt = system_prompt
+        if isinstance(system_prompt, str):
+            self.system_prompt: list[dict] = [
+                {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+            ]
+        else:
+            self.system_prompt = system_prompt
         self.max_iterations = max_iterations
         self.model = model
         self._telemetry_logger = telemetry_logger

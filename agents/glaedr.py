@@ -468,9 +468,12 @@ class Glaedr(BaseSubagent):
             return await self._curator_tool_executor(name, kwargs)
 
         messages = [{"role": "user", "content": task_text}]
+        curator_system = [
+            {"type": "text", "text": GLAEDR_CURATOR_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+        ]
         try:
             digest_text = await self.claude_client.complete(
-                system=GLAEDR_CURATOR_SYSTEM_PROMPT,
+                system=curator_system,
                 messages=messages,
                 tools=self._curator_scoped_tools or None,
                 tool_executor=limited_executor,
