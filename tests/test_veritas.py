@@ -14,16 +14,17 @@ from tools.subagent_tools import make_deep_research_tool
 
 def _make_mock_registry(extra_tools: list[str] | None = None):
     """Vrátí mock ToolRegistry s web_search, vault_read, vault_search a volitelnými extras."""
-    schemas = [
-        {"name": "web_search", "description": "Search the web", "input_schema": {}},
-        {"name": "vault_read", "description": "Read vault file", "input_schema": {}},
-        {"name": "vault_search", "description": "Search vault", "input_schema": {}},
-    ]
-    for t in (extra_tools or []):
-        schemas.append({"name": t, "description": t, "input_schema": {}})
+    base_tools = ["web_search", "vault_read", "vault_search"]
+    all_names = base_tools + list(extra_tools or [])
+    schemas_by_name = {
+        name: {"name": name, "description": name, "input_schema": {}}
+        for name in all_names
+    }
 
     registry = MagicMock()
-    registry.get_schemas.return_value = schemas
+    registry.get_schemas.return_value = list(schemas_by_name.values())
+    registry.get_schema.side_effect = lambda name: schemas_by_name.get(name)
+    registry.has_tool.side_effect = lambda name: name in schemas_by_name
     registry.execute = AsyncMock(return_value="tool_result")
     return registry
 

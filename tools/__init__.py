@@ -60,5 +60,20 @@ class ToolRegistry:
                 except Exception:
                     logger.warning("Telemetry log_tool_call selhal (tool=%s)", name)
 
+    def get_schema(self, name: str) -> dict | None:
+        """Return the tool schema dict for a given tool name, or None if not registered."""
+        for fn, schema in self._tools:
+            if fn.__name__ == name:
+                return {
+                    "name": fn.__name__,
+                    "description": (fn.__doc__ or "").strip(),
+                    "input_schema": schema,
+                }
+        return None
+
+    def has_tool(self, name: str) -> bool:
+        """Return True if a tool with the given name is registered."""
+        return any(fn.__name__ == name for fn, _ in self._tools)
+
     def __len__(self) -> int:
         return len(self._tools)

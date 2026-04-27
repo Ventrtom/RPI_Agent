@@ -35,15 +35,16 @@ success"""
 
 def _make_mock_registry(extra_tools: list[str] | None = None):
     """Vrátí mock ToolRegistry s celým Aeternin whitelistem + volitelnými extras."""
-    schemas = [
-        {"name": name, "description": name, "input_schema": {}}
-        for name in AETERNA_TOOL_WHITELIST
-    ]
-    for t in (extra_tools or []):
-        schemas.append({"name": t, "description": t, "input_schema": {}})
+    all_names = list(AETERNA_TOOL_WHITELIST) + list(extra_tools or [])
+    schemas_by_name = {
+        name: {"name": name, "description": name, "input_schema": {}}
+        for name in all_names
+    }
 
     registry = MagicMock()
-    registry.get_schemas.return_value = schemas
+    registry.get_schemas.return_value = list(schemas_by_name.values())
+    registry.get_schema.side_effect = lambda name: schemas_by_name.get(name)
+    registry.has_tool.side_effect = lambda name: name in schemas_by_name
     registry.execute = AsyncMock(return_value="tool_result")
     return registry
 
@@ -75,7 +76,8 @@ def _make_aeterna(
 
 def test_aeterna_scoped_tools_only():
     """Aeterna dostane z registru pouze povolené tools — zakázané jsou odebrány."""
-    forbidden = ["send_email", "ha_call_service", "web_search", "vault_write", "vault_read"]
+    # send_email je nyní v AETERNA_TOOL_WHITELIST (Aeterna ji smí posílat v scheduled kontextu)
+    forbidden = ["ha_call_service", "web_search", "vault_write", "vault_read"]
     registry = _make_mock_registry(extra_tools=forbidden)
     aeterna = _make_aeterna(mock_registry=registry)
 
@@ -111,7 +113,8 @@ async def test_aeterna_no_email_or_ha_or_web():
     executor = captured["executor"]
     assert executor is not None
 
-    for forbidden in ("send_email", "ha_call_service", "web_search", "vault_write"):
+    # send_email je nyní v AETERNA_TOOL_WHITELIST — testujeme ostatní zakázané tools
+    for forbidden in ("ha_call_service", "web_search", "vault_write"):
         result = await executor(forbidden, {})
         assert isinstance(result, str)
         assert "not available to Aeterna" in result

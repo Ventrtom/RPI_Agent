@@ -283,6 +283,7 @@ class Glaedr(BaseSubagent):
         memory_client: MemoryClient,
         vault_manager: VaultManager,
         tool_registry: ToolRegistry,
+        internal_registry: ToolRegistry | None = None,
         model: str | None = None,
         notifier=None,
         telemetry_logger=None,

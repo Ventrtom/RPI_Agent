@@ -85,16 +85,22 @@ class Veritas(BaseSubagent):
         memory_client: MemoryClient,
         vault_manager: VaultManager,
         tool_registry: ToolRegistry,
+        internal_registry: ToolRegistry | None = None,
         model: str | None = None,
         telemetry_logger=None,
     ) -> None:
         self._memory = memory_client
         self._vault = vault_manager  # uloženo pro případné budoucí rozšíření
 
-        scoped_tools = [
-            s for s in tool_registry.get_schemas()
-            if s["name"] in VERITAS_TOOL_WHITELIST
-        ]
+        scoped_tools = []
+        for name in VERITAS_TOOL_WHITELIST:
+            schema = tool_registry.get_schema(name)
+            if schema is None and internal_registry is not None:
+                schema = internal_registry.get_schema(name)
+            if schema is None:
+                logger.warning("Veritas: tool %s not found in any registry", name)
+                continue
+            scoped_tools.append(schema)
 
         # Mutable dict pro počítání tool volání per research() call
         self._tool_counters: dict[str, int] = {"web_search_calls": 0, "vault_calls": 0}
@@ -109,7 +115,11 @@ class Veritas(BaseSubagent):
                 self._tool_counters["web_search_calls"] += 1
             elif name in ("vault_read", "vault_search"):
                 self._tool_counters["vault_calls"] += 1
-            return await tool_registry.execute(name, kwargs)
+            if tool_registry.has_tool(name):
+                return await tool_registry.execute(name, kwargs)
+            if internal_registry is not None and internal_registry.has_tool(name):
+                return await internal_registry.execute(name, kwargs)
+            return {"error": f"Tool '{name}' not found in any registry"}
 
         veritas_model_override = model or os.getenv("VERITAS_MODEL")
         if veritas_model_override:

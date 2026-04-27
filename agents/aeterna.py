@@ -40,6 +40,8 @@ AETERNA_TOOL_WHITELIST: frozenset[str] = frozenset({
     # contacts read-only
     "get_contacts",
     "get_contact_by_name",
+    # communication (for scheduled task delivery)
+    "send_email",
 })
 
 AETERNA_SYSTEM_PROMPT = """You are Aeterna, a scheduling and time specialist — a subagent serving Prime.
@@ -180,18 +182,28 @@ class Aeterna(BaseSubagent):
         self,
         claude_client: ClaudeClient,
         tool_registry: ToolRegistry,
+        internal_registry: ToolRegistry | None = None,
         confirmation_gate=None,  # tools.confirmation.ConfirmationGate | None
         model: str | None = None,
         is_scheduled_context: bool = False,
         telemetry_logger=None,
     ) -> None:
-        scoped_tools = [
-            s for s in tool_registry.get_schemas()
-            if s["name"] in AETERNA_TOOL_WHITELIST
-        ]
+        scoped_tools = []
+        for name in AETERNA_TOOL_WHITELIST:
+            schema = tool_registry.get_schema(name)
+            if schema is None and internal_registry is not None:
+                schema = internal_registry.get_schema(name)
+            if schema is None:
+                logger.warning("Aeterna: tool %s not found in any registry", name)
+                continue
+            scoped_tools.append(schema)
 
         async def raw_execute(name: str, kwargs: dict) -> object:
-            return await tool_registry.execute(name, kwargs)
+            if tool_registry.has_tool(name):
+                return await tool_registry.execute(name, kwargs)
+            if internal_registry is not None and internal_registry.has_tool(name):
+                return await internal_registry.execute(name, kwargs)
+            raise ValueError(f"Unknown tool: {name}")
 
         confirmed_execute = _make_confirmed_executor(raw_execute, is_scheduled_context, confirmation_gate)
 

@@ -123,13 +123,23 @@ Prime dostává SubagentResult.summary + data["object_id"] → potvrzuje uživat
 |----------|----------|------|
 | Jednoduchý recall ze system promptu | — | Přímá odpověď |
 | Čtení konkrétního vault souboru (známá cesta) | — | `vault_read` přímo |
-| Rychlý aktuální fakt (počasí, kurz, zpráva) | — | `web_search` přímo |
-| Jednoduchý schedule dotaz ("co mám zítra?") | — | `get_calendar_events` přímo |
+| Rychlý aktuální fakt (počasí, kurz, zpráva) | Veritas | `deep_research` (web_search není v Prime registru) |
+| Čtení schedule ("co mám zítra?") | — | `list_tasks` přímo (read-only) |
+| Zápis do calendar/scheduleru | Aeterna | `plan_task` (calendar write tools nejsou v Prime registru) |
 | Hlubší recall + syntéza přes více vzpomínek nebo vault souborů | Glaedr | `memory_dive` |
 | Kontrola/housekeeping paměti | Glaedr curator | `memory_housekeeping` |
 | Výzkum kombinující web + interní znalosti | Veritas | `deep_research` |
 | Komplexní scheduling intent (čas, recurrence, konflikty) | Aeterna | `plan_task` |
 | Přehled a health check naplánovaných věcí | Aeterna | `review_my_schedule` |
+
+## Tool registry architektura
+
+Subagenti mají přístup ke dvěma registrům:
+
+- **prime_registry** — tools viditelné Prime při každém LLM volání. Vault, contacts, telegram, system, list_tasks, delegation tools.
+- **internal_registry** — tools přístupné POUZE subagentům. Nejsou v Prime kontextu, čímž snižují tokenový footprint. Obsahuje: web_search (Veritas), calendar CRUD + scheduler write + send_email (Aeterna).
+
+Každý subagent dostane v konstruktoru oba registry a `scoped_executor` routuje tool calls do správného registru podle `has_tool()`.
 
 ## Jak přidat nového subagenta
 

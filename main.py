@@ -147,20 +147,16 @@ async def main() -> None:
         init_self_tools,
         get_self_info,
         )
-    from tools.source_tools import (
-        LIST_OWN_SOURCE_SCHEMA,
-        READ_OWN_SOURCE_SCHEMA,
-        init_source_tools,
-        list_own_source,
-        read_own_source,
-        )
+    from tools.source_tools import init_source_tools
     from vault.vault_manager import VaultManager
     from vault.indexer import VaultIndexer
     from vault.tools import (
+        VAULT_PATCH_SCHEMA,
         VAULT_READ_SCHEMA,
         VAULT_WRITE_SCHEMA,
         VAULT_SEARCH_SCHEMA,
         init_vault_tools,
+        vault_patch,
         vault_read,
         vault_write,
         vault_search,
@@ -168,37 +164,42 @@ async def main() -> None:
     from reasoning.engine import ReasoningEngine
     from tools.voice_tools import SET_VOICE_PROFILE_SCHEMA, set_voice_profile
 
-    registry = ToolRegistry(telemetry_logger=telemetry_logger)
-    registry.register(get_system_status)
-    registry.register(get_agent_logs, GET_AGENT_LOGS_SCHEMA)
-    registry.register(restart_agent_service)
-    registry.register(shutdown_raspberry_pi, SHUTDOWN_SCHEMA)
-    registry.register(get_calendar_events, GET_CALENDAR_EVENTS_SCHEMA)
-    registry.register(create_calendar_event, CREATE_CALENDAR_EVENT_SCHEMA)
-    registry.register(send_email, SEND_EMAIL_SCHEMA)
-    registry.register(get_contacts, GET_CONTACTS_SCHEMA)
-    registry.register(get_contact_by_name, GET_CONTACT_BY_NAME_SCHEMA)
-    registry.register(add_contact, ADD_CONTACT_SCHEMA)
-    registry.register(remove_contact, REMOVE_CONTACT_SCHEMA)
-    registry.register(delete_calendar_event, DELETE_CALENDAR_EVENT_SCHEMA)
-    registry.register(find_free_slots, FIND_FREE_SLOTS_SCHEMA)
-    registry.register(send_telegram_message, SEND_TELEGRAM_MESSAGE_SCHEMA)
-    registry.register(schedule_task, SCHEDULE_TASK_SCHEMA)
-    registry.register(list_tasks, LIST_TASKS_SCHEMA)
-    registry.register(get_task_details, GET_TASK_DETAILS_SCHEMA)
-    registry.register(cancel_task, CANCEL_TASK_SCHEMA)
-    registry.register(enable_task, ENABLE_TASK_SCHEMA)
-    registry.register(update_task, UPDATE_TASK_SCHEMA)
-    registry.register(web_search, WEB_SEARCH_SCHEMA)
-    registry.register(get_self_info, GET_SELF_INFO_SCHEMA)
-    registry.register(list_own_source, LIST_OWN_SOURCE_SCHEMA)
-    registry.register(read_own_source, READ_OWN_SOURCE_SCHEMA)
-    registry.register(vault_read, VAULT_READ_SCHEMA)
-    registry.register(vault_write, VAULT_WRITE_SCHEMA)
-    registry.register(vault_search, VAULT_SEARCH_SCHEMA)
-    registry.register(set_voice_profile, SET_VOICE_PROFILE_SCHEMA)
-    registry.register(get_observability_data, GET_OBSERVABILITY_DATA_SCHEMA)
-    logger.info("Tools registered: %s", [fn.__name__ for fn in registry.get_all()])
+    # Prime registry — tools visible to Prime in every LLM call (~22 tools)
+    prime_registry = ToolRegistry(telemetry_logger=telemetry_logger)
+    prime_registry.register(get_system_status)
+    prime_registry.register(get_agent_logs, GET_AGENT_LOGS_SCHEMA)
+    prime_registry.register(restart_agent_service)
+    prime_registry.register(shutdown_raspberry_pi, SHUTDOWN_SCHEMA)
+    prime_registry.register(get_contacts, GET_CONTACTS_SCHEMA)
+    prime_registry.register(get_contact_by_name, GET_CONTACT_BY_NAME_SCHEMA)
+    prime_registry.register(add_contact, ADD_CONTACT_SCHEMA)
+    prime_registry.register(remove_contact, REMOVE_CONTACT_SCHEMA)
+    prime_registry.register(send_telegram_message, SEND_TELEGRAM_MESSAGE_SCHEMA)
+    prime_registry.register(list_tasks, LIST_TASKS_SCHEMA)
+    prime_registry.register(get_self_info, GET_SELF_INFO_SCHEMA)
+    prime_registry.register(vault_read, VAULT_READ_SCHEMA)
+    prime_registry.register(vault_write, VAULT_WRITE_SCHEMA)
+    prime_registry.register(vault_search, VAULT_SEARCH_SCHEMA)
+    prime_registry.register(vault_patch, VAULT_PATCH_SCHEMA)
+    prime_registry.register(set_voice_profile, SET_VOICE_PROFILE_SCHEMA)
+    prime_registry.register(get_observability_data, GET_OBSERVABILITY_DATA_SCHEMA)
+    logger.info("Prime registry: %d tools", len(prime_registry))
+
+    # Internal registry — tools accessible only to subagents, not in Prime's LLM context
+    # (list_own_source, read_own_source are unregistered — available as module functions only)
+    internal_registry = ToolRegistry(telemetry_logger=telemetry_logger)
+    internal_registry.register(web_search, WEB_SEARCH_SCHEMA)
+    internal_registry.register(get_calendar_events, GET_CALENDAR_EVENTS_SCHEMA)
+    internal_registry.register(create_calendar_event, CREATE_CALENDAR_EVENT_SCHEMA)
+    internal_registry.register(delete_calendar_event, DELETE_CALENDAR_EVENT_SCHEMA)
+    internal_registry.register(find_free_slots, FIND_FREE_SLOTS_SCHEMA)
+    internal_registry.register(send_email, SEND_EMAIL_SCHEMA)
+    internal_registry.register(schedule_task, SCHEDULE_TASK_SCHEMA)
+    internal_registry.register(get_task_details, GET_TASK_DETAILS_SCHEMA)
+    internal_registry.register(cancel_task, CANCEL_TASK_SCHEMA)
+    internal_registry.register(enable_task, ENABLE_TASK_SCHEMA)
+    internal_registry.register(update_task, UPDATE_TASK_SCHEMA)
+    logger.info("Internal registry: %d tools (subagents only)", len(internal_registry))
 
     tasks_db_path = os.getenv("TASKS_DB_PATH", "./data/tasks.db")
     scheduler_tz = os.getenv("SCHEDULER_TIMEZONE", "Europe/Prague")
@@ -228,14 +229,15 @@ async def main() -> None:
         claude_client=claude_client,
         memory_client=memory_client,
         vault_manager=vault_manager,
-        tool_registry=registry,
+        tool_registry=prime_registry,
+        internal_registry=internal_registry,
         notifier=notifier,
         telemetry_logger=telemetry_logger,
     )
     memory_dive = make_memory_dive_tool(glaedr)
     memory_housekeeping = make_memory_housekeeping_tool(glaedr)
-    registry.register(memory_dive, MEMORY_DIVE_SCHEMA)
-    registry.register(memory_housekeeping, MEMORY_HOUSEKEEPING_SCHEMA)
+    prime_registry.register(memory_dive, MEMORY_DIVE_SCHEMA)
+    prime_registry.register(memory_housekeeping, MEMORY_HOUSEKEEPING_SCHEMA)
     logger.info("Glaedr subagent initialised, memory_dive + memory_housekeeping registered")
 
     from agents.veritas import Veritas
@@ -245,11 +247,12 @@ async def main() -> None:
         claude_client=claude_client,
         memory_client=memory_client,
         vault_manager=vault_manager,
-        tool_registry=registry,
+        tool_registry=prime_registry,
+        internal_registry=internal_registry,
         telemetry_logger=telemetry_logger,
     )
     deep_research = make_deep_research_tool(veritas)
-    registry.register(deep_research, DEEP_RESEARCH_SCHEMA)
+    prime_registry.register(deep_research, DEEP_RESEARCH_SCHEMA)
     logger.info("Veritas subagent initialised, deep_research tool registered")
 
     session_store = SessionStore(db_path=session_db_path)
@@ -258,6 +261,7 @@ async def main() -> None:
         store=session_store,
         snapshot_manager=snapshot_manager,
         telemetry_logger=telemetry_logger,
+        claude_client=claude_client,
     )
 
     reasoning_engine = ReasoningEngine(claude_client, vault_manager=vault_manager)
@@ -273,21 +277,22 @@ async def main() -> None:
 
     aeterna = Aeterna(
         claude_client=claude_client,
-        tool_registry=registry,
+        tool_registry=prime_registry,
+        internal_registry=internal_registry,
         confirmation_gate=confirmation_gate,
         telemetry_logger=telemetry_logger,
     )
     plan_task = make_plan_task_tool(aeterna)
     review_my_schedule = make_review_schedule_tool(aeterna)
-    registry.register(plan_task, PLAN_TASK_SCHEMA)
-    registry.register(review_my_schedule, REVIEW_SCHEDULE_SCHEMA)
+    prime_registry.register(plan_task, PLAN_TASK_SCHEMA)
+    prime_registry.register(review_my_schedule, REVIEW_SCHEDULE_SCHEMA)
     logger.info("Aeterna subagent initialised, plan_task + review_my_schedule registered")
 
     agent = Agent(
         memory_client=memory_client,
         claude_client=claude_client,
         session_manager=session_manager,
-        tool_registry=registry,
+        tool_registry=prime_registry,
         reasoning_engine=reasoning_engine,
         confirmation_gate=confirmation_gate,
     )
@@ -310,14 +315,14 @@ async def main() -> None:
         ha_timeout = float(os.getenv("HA_TIMEOUT", "10"))
         ha_client = HAClient(base_url=ha_url, token=ha_token, timeout=ha_timeout)
         init_ha_tools(ha_client)
-        registry.register(ha_list_entities, HA_LIST_ENTITIES_SCHEMA)
-        registry.register(ha_get_state, HA_GET_STATE_SCHEMA)
-        registry.register(ha_call_service, HA_CALL_SERVICE_SCHEMA)
-        registry.register(ha_get_history, HA_GET_HISTORY_SCHEMA)
+        prime_registry.register(ha_list_entities, HA_LIST_ENTITIES_SCHEMA)
+        prime_registry.register(ha_get_state, HA_GET_STATE_SCHEMA)
+        prime_registry.register(ha_call_service, HA_CALL_SERVICE_SCHEMA)
+        prime_registry.register(ha_get_history, HA_GET_HISTORY_SCHEMA)
         logger.info("Home Assistant tools registered (%s)", ha_url)
 
     init_telegram_tools(notifier)
-    init_self_tools(claude_client, memory_client, registry)
+    init_self_tools(claude_client, memory_client, prime_registry)
     init_source_tools(Path(__file__).parent)
 
     task_store = TaskStore(db_path=tasks_db_path)
