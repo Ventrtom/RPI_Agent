@@ -265,7 +265,7 @@ async def main() -> None:
     )
 
     reasoning_engine = ReasoningEngine(claude_client, vault_manager=vault_manager)
-    logger.info("ReasoningEngine initialised (MAX_ITERATIONS=%d)", ReasoningEngine.MAX_ITERATIONS)
+    logger.info("ReasoningEngine initialised")
 
     confirmation_gate = ConfirmationGate(notifier)
 
