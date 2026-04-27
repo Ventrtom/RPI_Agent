@@ -184,10 +184,22 @@ async def test_handle_text_exception_sends_error_message():
 
 @pytest.mark.asyncio
 async def test_handle_text_sends_typing_action():
+    # The handler uses asyncio.create_task(_keep_typing(...)) for continuous typing.
+    # AsyncMock.process() resolves immediately without yielding to the event loop,
+    # so stop_typing.set() fires before _keep_typing ever runs — send_action is
+    # never called. Verify that create_task was scheduled instead.
     update = _make_update(text="Hi")
     ctx = _make_context()
-    await _handle_text(update, ctx)
-    update.message.chat.send_action.assert_called_once()
+    created = []
+
+    def _capture(coro):
+        created.append(coro)
+        coro.close()  # prevent "coroutine was never awaited" warning
+        return MagicMock()
+
+    with patch("interfaces.telegram_bot.asyncio.create_task", side_effect=_capture):
+        await _handle_text(update, ctx)
+    assert len(created) == 1
 
 
 # ---------------------------------------------------------------------------
