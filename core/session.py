@@ -36,12 +36,14 @@ class SessionManager:
         store: SessionStore | None = None,
         snapshot_manager: SessionSnapshotManager | None = None,
         telemetry_logger: TelemetryLogger | None = None,
+        claude_client=None,
     ) -> None:
         self._sessions: dict[str, Session] = {}
         self._timeout = timedelta(minutes=timeout_minutes)
         self._store = store
         self._snapshot_manager = snapshot_manager
         self._telemetry_logger = telemetry_logger
+        self._claude_client = claude_client
         if store:
             self._load_from_store(store)
         asyncio.get_event_loop().create_task(self._cleanup_loop())
@@ -120,11 +122,19 @@ class SessionManager:
                 self._store.mark_closed(session_id)
 
             if self._telemetry_logger:
+                stats: dict = {"message_count": msg_count}
+                if self._claude_client is not None:
+                    usage = self._claude_client.get_token_usage()
+                    stats.update({
+                        "input_tokens": usage["input_tokens"],
+                        "output_tokens": usage["output_tokens"],
+                        "cache_creation_tokens": usage["cache_creation_tokens"],
+                        "cache_read_tokens": usage["cache_read_tokens"],
+                        "cache_hit_rate": usage["cache_hit_rate"],
+                        "estimated_savings_usd": usage["estimated_savings_usd"],
+                    })
                 asyncio.ensure_future(
-                    self._telemetry_logger.log_session_end(
-                        session_id,
-                        {"message_count": msg_count},
-                    )
+                    self._telemetry_logger.log_session_end(session_id, stats)
                 )
 
     async def cleanup_expired(self) -> None:

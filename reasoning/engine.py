@@ -45,13 +45,6 @@ _STEP_PROMPTS: dict[str, str] = {
         "Execute any required actions (write to calendar, send an email, update vault, etc.). "
         "If no actions are needed, state that briefly and do nothing."
     ),
-    "reflect": (
-        "Review the context gathered so far and draft a mental outline of your response. "
-        "Rate your readiness 1-5 (5 = fully ready). "
-        "Respond ONLY with valid JSON, no extra text:\n"
-        '{"score": <int 1-5>, "issues": [<strings>], "skip_revision": <bool>}\n'
-        "Set skip_revision to true if score >= 4."
-    ),
     "finalize": (
         "Produce the final response for the user. "
         "Incorporate all gathered context and address any issues noted during reflection. "
@@ -61,8 +54,6 @@ _STEP_PROMPTS: dict[str, str] = {
 
 
 class ReasoningEngine:
-    MAX_ITERATIONS = 4
-
     def __init__(self, claude_client: ClaudeClient, vault_manager: "VaultManager | None" = None) -> None:
         self._claude = claude_client
         self._vault = vault_manager
@@ -96,28 +87,15 @@ class ReasoningEngine:
 
         await self._notify(progress_callback, "🔄 Přemýšlím… (diagnostika)")
 
-        for _ in range(self.MAX_ITERATIONS):
-            # diagnose
-            step = await self._run_step("diagnose", ctx, system_prompt, messages, tools, tool_executor)
-            ctx.add_step(step)
+        step = await self._run_step("diagnose", ctx, system_prompt, messages, tools, tool_executor)
+        ctx.add_step(step)
 
-            # gather
-            await self._notify(progress_callback, "🔄 Přemýšlím… (sbírám kontext)")
-            step = await self._run_step("gather", ctx, system_prompt, messages, tools, tool_executor)
-            ctx.add_step(step)
+        await self._notify(progress_callback, "🔄 Přemýšlím… (sbírám kontext)")
+        step = await self._run_step("gather", ctx, system_prompt, messages, tools, tool_executor)
+        ctx.add_step(step)
 
-            # act
-            step = await self._run_step("act", ctx, system_prompt, messages, tools, tool_executor)
-            ctx.add_step(step)
-
-            # reflect
-            await self._notify(progress_callback, "🔄 Přemýšlím… (reviduju odpověď)")
-            step = await self._run_step("reflect", ctx, system_prompt, messages, tools, None)
-            ctx.add_step(step)
-
-            reflection = self._parse_reflection(step.thought or "")
-            if reflection.get("skip_revision") or reflection.get("score", 0) >= 4:
-                break
+        step = await self._run_step("act", ctx, system_prompt, messages, tools, tool_executor)
+        ctx.add_step(step)
 
         # finalize
         step = await self._run_step("finalize", ctx, system_prompt, messages, tools, tool_executor)
@@ -223,18 +201,6 @@ class ReasoningEngine:
             for tr in step.tool_results:
                 parts.append(f"  tool={tr['name']}: {tr['result'][:300]}")
         return "\n".join(parts)
-
-    @staticmethod
-    def _parse_reflection(text: str) -> dict:
-        try:
-            # Extract JSON from text (Claude may add surrounding prose)
-            start = text.find("{")
-            end = text.rfind("}") + 1
-            if start != -1 and end > start:
-                return json.loads(text[start:end])
-        except (json.JSONDecodeError, ValueError):
-            pass
-        return {"score": 4, "issues": [], "skip_revision": True}
 
     async def _write_trace(self, ctx: ReasoningContext) -> None:
         if self._vault is None:

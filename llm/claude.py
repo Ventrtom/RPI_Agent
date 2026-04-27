@@ -46,7 +46,12 @@ class ClaudeClient:
                 "max_tokens": max_tokens,
             }
             if tools:
-                kwargs["tools"] = tools
+                tools_with_cache = list(tools)
+                if tools_with_cache:
+                    last = dict(tools_with_cache[-1])
+                    last["cache_control"] = {"type": "ephemeral"}
+                    tools_with_cache[-1] = last
+                kwargs["tools"] = tools_with_cache
 
             response = await self._client.messages.create(**kwargs)
 
@@ -102,4 +107,10 @@ class ClaudeClient:
             "total_tokens": total,
             "cache_creation_tokens": self._session_cache_creation_tokens,
             "cache_read_tokens": self._session_cache_read_tokens,
+            "cache_hit_rate": (
+                self._session_cache_read_tokens / max(1, self._session_input_tokens)
+            ),
+            "estimated_savings_usd": (
+                self._session_cache_read_tokens * 0.90 * (0.80 / 1_000_000)
+            ),
         }
